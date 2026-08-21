@@ -117,6 +117,18 @@ script needs Git Bash or WSL.
 `tools/serve.py` sends `no-store`, so after pulling new code a plain browser
 refresh always runs the current version — no hard reload needed.
 
+### When the app does not look like the code
+
+```sh
+./tools/doctor.sh
+```
+
+Checks, in the order things usually go wrong: right branch, uncommitted changes
+blocking a pull, commits behind origin, whether the files on disk are current,
+whether a server is running, whether it is serving current files, whether it
+disables caching, and whether the snapshot has per-match history. Each problem
+prints the command that fixes it.
+
 ### After pulling changes
 
 ```sh
@@ -289,6 +301,8 @@ fpl/
   tests/            node --test suites
 tools/
   start.sh                refresh data and serve the app
+  serve.py                static server with caching disabled
+  doctor.sh               diagnose a stale or misconfigured setup
   refresh_fpl_data.py     fetches a live snapshot
   make_demo_snapshot.mjs  regenerates the demo dataset
 ```
