@@ -6,15 +6,15 @@ import { emptyState, initialSquad, declareChip } from '../js/squad.js';
 import { planTransfers, combinations, describe } from '../js/transfers.js';
 
 /** Squad of ordinary players plus a shortlist of named candidates. */
-function setup(candidates, { freeTransfers = 1, squadOverrides = {}, bank = null } = {}) {
+function setup(candidates, { freeTransfers = 1, squadOverrides = {}, bank = null, gameweek = 2 } = {}) {
   const specs = [...legalSquadSpecs(squadOverrides), ...candidates];
   const snapshot = buildSnapshot({ playerSpecs: specs });
-  let state = initialSquad(emptyState(1), legalSquadSpecs().map((s) => s.id), snapshot);
+  let state = initialSquad(emptyState(gameweek), legalSquadSpecs().map((s) => s.id), snapshot);
   state = { ...state, freeTransfers, ...(bank == null ? {} : { bank }) };
   return { snapshot, state };
 }
 
-const OPTS = { epBlend: 0, horizon: 6, minutesPrior: 80 };
+const OPTS = { epBlend: 0, horizon: 6, minutesPrior: 80, fromGameweek: 1 };
 
 test('an obviously better candidate is recommended for the free transfer', () => {
   // Player 8 is a replacement-level midfielder; candidate 90 is elite and affordable.
@@ -276,4 +276,30 @@ test('protecting a player you do not own has no effect on the planner', () => {
   assert.equal(result.recommendation.plan.transfersOut[0].id, 8, 'the normal move still stands');
   assert.equal(result.protectionCost, null);
   assert.equal(result.blockedPlans, 0);
+});
+
+
+test('before the first deadline the planner takes no hits and does not talk about rolling', () => {
+  const dead = { xG90: 0, xA90: 0, price: 55, minutes: 900 };
+  const candidates = [90, 91].map((id, i) => ({
+    id, name: `Star${id}`, position: MID, team: 20 - i, price: 55, xG90: 0.8, xA90: 0.5, minutes: 900,
+  }));
+  const { snapshot, state } = setup(candidates, { squadOverrides: { 8: dead, 9: dead }, gameweek: 1 });
+
+  const result = planTransfers(state, snapshot, [90, 91], OPTS);
+  assert.ok(result.preSeason);
+  assert.equal(result.recommendation.plan.transfers, 2, 'both upgrades, with nothing to pay');
+  assert.equal(result.recommendation.plan.hits, 0);
+  for (const plan of result.plans) assert.equal(plan.hits, 0, 'no plan can incur a hit pre-season');
+});
+
+test('a pre-season hold does not offer to roll a transfer that does not exist', () => {
+  const { snapshot, state } = setup([
+    { id: 90, name: 'Similar', position: MID, team: 20, price: 55, xG90: 0.20, xA90: 0.15, minutes: 900 },
+  ], { squadOverrides: { 8: { xG90: 0.19, xA90: 0.15, price: 55 } }, gameweek: 1 });
+
+  const result = planTransfers(state, snapshot, [90], OPTS);
+  assert.equal(result.recommendation.action, 'hold');
+  assert.doesNotMatch(result.recommendation.headline, /Roll your transfer/);
+  assert.match(result.recommendation.headline, /still free until the Gameweek 1 deadline/);
 });

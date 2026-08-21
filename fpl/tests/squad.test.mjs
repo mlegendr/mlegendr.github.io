@@ -4,14 +4,18 @@ import { buildSnapshot, legalSquadSpecs } from './fixtures.mjs';
 import { GKP, DEF, MID, FWD, MAX_FREE_TRANSFERS } from '../js/rules.js';
 import {
   emptyState, initialSquad, validateSquad, applyTransfers, declareChip,
-  advanceGameweek, squadValue, sellValue,
+  advanceGameweek, squadValue, sellValue, isPreSeason, freeTransfersAvailable,
 } from '../js/squad.js';
 
-/** A snapshot with a legal 15 plus spare players to transfer in. */
-function setup(extra = [], overrides = {}) {
+/**
+ * A snapshot with a legal 15 plus spare players to transfer in.
+ * Gameweek 2 by default: gameweek 1 is pre-season, where transfers are free and
+ * unlimited, so it is the wrong place to test transfer economics.
+ */
+function setup(extra = [], overrides = {}, gameweek = 2) {
   const specs = [...legalSquadSpecs(overrides), ...extra];
   const snapshot = buildSnapshot({ playerSpecs: specs });
-  const state = initialSquad(emptyState(1), legalSquadSpecs().map((s) => s.id), snapshot);
+  const state = initialSquad(emptyState(gameweek), legalSquadSpecs().map((s) => s.id), snapshot);
   return { snapshot, state };
 }
 
@@ -86,7 +90,7 @@ test('free transfers accrue to a cap of five', () => {
   let s = { ...state, freeTransfers: 1 };
   for (let i = 0; i < 10; i++) s = advanceGameweek(s);
   assert.equal(s.freeTransfers, MAX_FREE_TRANSFERS);
-  assert.equal(s.gameweek, 11);
+  assert.equal(s.gameweek, 12);
 });
 
 test('a wildcard makes transfers free and keeps the banked ones', () => {
@@ -177,4 +181,52 @@ test('a squad whose players have risen since purchase is still within budget', (
   const value = squadValue(state, snapshot);
   assert.equal(value.market - value.selling, 15 * 5, 'half of each £1.0m rise is withheld');
   assert.ok(value.market > spent, 'the squad is worth more than it cost');
+});
+
+
+// ── Before the first deadline ──────────────────────────────────────────────
+
+test('there are no free transfers before the gameweek 1 deadline', () => {
+  const { state } = setup([], {}, 1);
+  assert.ok(isPreSeason(state));
+  assert.equal(freeTransfersAvailable(state), Infinity, 'rebuild as often as you like');
+  assert.equal(state.freeTransfers, 0, 'nothing banked, because nothing has been granted');
+});
+
+test('pre-season transfers are free however many you make', () => {
+  const { snapshot, state } = setup([
+    { id: 90, position: MID, team: 20, price: 45 },
+    { id: 91, position: MID, team: 20, price: 45 },
+    { id: 92, position: MID, team: 20, price: 45 },
+  ], {}, 1);
+
+  const { state: after, cost } = applyTransfers(state, { out: [8, 9, 10], in: [90, 91, 92] }, snapshot);
+  assert.equal(cost, 0, 'no hit before the first deadline');
+  assert.equal(after.freeTransfers, 0, 'and nothing is deducted');
+});
+
+test('the first free transfer arrives with gameweek 2', () => {
+  const { state } = setup([], {}, 1);
+  const gw2 = advanceGameweek(state);
+  assert.equal(gw2.gameweek, 2);
+  assert.equal(gw2.freeTransfers, 1, 'exactly one, not one on top of a phantom allowance');
+  assert.equal(freeTransfersAvailable(gw2), 1);
+
+  const gw3 = advanceGameweek(gw2);
+  assert.equal(gw3.freeTransfers, 2, 'and it accrues normally from there');
+});
+
+test('joining mid-season starts with one free transfer, not unlimited', () => {
+  const { state } = setup([], {}, 10);
+  assert.equal(isPreSeason(state), false);
+  assert.equal(freeTransfersAvailable(state), 1);
+});
+
+test('a second transfer in gameweek 2 does cost four points', () => {
+  const { snapshot, state } = setup([
+    { id: 90, position: MID, team: 20, price: 45 },
+    { id: 91, position: MID, team: 20, price: 45 },
+  ], {}, 2);
+  const { cost } = applyTransfers(state, { out: [8, 9], in: [90, 91] }, snapshot);
+  assert.equal(cost, 4);
 });

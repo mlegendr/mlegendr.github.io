@@ -13,13 +13,27 @@ import {
 
 export const STATE_VERSION = 1;
 
+/**
+ * Until the Gameweek 1 deadline the squad can be rebuilt as often as you like,
+ * so there is no such thing as a free transfer to spend or bank. The first one
+ * arrives with Gameweek 2.
+ */
+export function isPreSeason(state) {
+  return state.gameweek <= 1;
+}
+
+/** Free transfers available now: unlimited before the first deadline. */
+export function freeTransfersAvailable(state) {
+  return isPreSeason(state) ? Infinity : state.freeTransfers;
+}
+
 export function emptyState(gameweek = 1) {
   return {
     version: STATE_VERSION,
     season: '2026/27',
     gameweek,
     bank: 0,                       // tenths of a million
-    freeTransfers: 1,
+    freeTransfers: gameweek <= 1 ? 0 : 1,
     picks: [],                     // { playerId, purchasePrice }
     chipsUsed: { first: [], second: [] },
     activeChip: 'none',            // chip declared for the current gameweek
@@ -117,11 +131,13 @@ export function applyTransfers(state, transfers, snapshot, { chip = state.active
   const validation = validateSquad(picks.map((p) => p.playerId), snapshot);
   if (!validation.valid) throw new Error(validation.errors.join(' '));
 
-  const free = CHIPS[chip]?.unlimitedTransfers ? Infinity : state.freeTransfers;
+  // Before the first deadline, and on a Wildcard or Free Hit, transfers are free.
+  const unlimited = !!CHIPS[chip]?.unlimitedTransfers || isPreSeason(state);
+  const free = unlimited ? Infinity : state.freeTransfers;
   const used = outIds.length;
   const cost = Math.max(0, used - free) * TRANSFER_HIT || 0;
-  // Wildcard and Free Hit leave banked free transfers untouched.
-  const freeTransfers = CHIPS[chip]?.unlimitedTransfers
+  // Wildcard, Free Hit and pre-season all leave banked transfers untouched.
+  const freeTransfers = unlimited
     ? state.freeTransfers
     : Math.max(0, state.freeTransfers - used);
 
@@ -199,6 +215,12 @@ export function advanceGameweek(state, { to = state.gameweek + 1 } = {}) {
   const restored = state.freeHitRestore
     ? { picks: state.freeHitRestore.picks, bank: state.freeHitRestore.bank }
     : {};
+  // Leaving the pre-season period grants the first free transfer outright,
+  // rather than accruing one on top of an allowance that never existed.
+  const freeTransfers = isPreSeason(state)
+    ? 1
+    : Math.min(MAX_FREE_TRANSFERS, state.freeTransfers + 1);
+
   return {
     ...state,
     ...restored,
@@ -206,7 +228,7 @@ export function advanceGameweek(state, { to = state.gameweek + 1 } = {}) {
     activeChip: 'none',
     freeHitRestore: null,
     savedXi: null,
-    freeTransfers: Math.min(MAX_FREE_TRANSFERS, state.freeTransfers + 1),
+    freeTransfers,
     log: [...state.log, { gameweek: to, type: 'advance', freeHitReverted: !!state.freeHitRestore }],
   };
 }

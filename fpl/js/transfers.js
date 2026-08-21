@@ -14,7 +14,7 @@
 import { MAX_FREE_TRANSFERS, TRANSFER_HIT, CHIPS, POSITIONS, MAX_PER_CLUB, money } from './rules.js';
 import { optimiseLineup } from './lineup.js';
 import { projectSquad, DEFAULTS as XP_DEFAULTS, teamGamesPlayed } from './xp.js';
-import { sellValue } from './squad.js';
+import { sellValue, isPreSeason } from './squad.js';
 
 export const PLANNER_DEFAULTS = {
   horizon: 6,
@@ -39,8 +39,11 @@ export const PLANNER_DEFAULTS = {
 export function planTransfers(state, snapshot, candidateIds, options = {}) {
   const o = { ...PLANNER_DEFAULTS, ...options };
   const chip = options.chip ?? state.activeChip ?? 'none';
-  const unlimited = !!CHIPS[chip]?.unlimitedTransfers;
-  const freeTransfers = state.freeTransfers;
+  // Pre-season behaves like a permanent wildcard: rebuild freely, no hits, and
+  // nothing to bank because free transfers do not exist yet.
+  const preSeason = isPreSeason(state);
+  const unlimited = !!CHIPS[chip]?.unlimitedTransfers || preSeason;
+  const freeTransfers = preSeason ? 0 : state.freeTransfers;
 
   const gameweeks = snapshot.horizon(options.fromGameweek ?? state.gameweek, o.horizon);
   const teamGamesMap = teamGamesPlayed(snapshot);
@@ -139,12 +142,13 @@ export function planTransfers(state, snapshot, candidateIds, options = {}) {
     gameweeks,
     chip,
     freeTransfers,
+    preSeason,
     protectedIds: [...protectedIds],
     baseline: { ...baseline, score: baselineScore },
     plans: allowed.slice(0, options.limit ?? 12),
     blockedPlans: blocked.length,
     protectionCost,
-    recommendation: recommend(best, allowed, o, { chip, freeTransfers, snapshot, gameweeks }),
+    recommendation: recommend(best, allowed, o, { chip, freeTransfers, snapshot, gameweeks, preSeason }),
     consideredPlans: plans.length,
     projections,
   };
@@ -195,19 +199,27 @@ function legalSwap(squad, outgoing, incoming, bank, snapshot) {
 }
 
 function recommend(best, plans, o, ctx) {
+  const holdReason = (detail) => {
+    if (ctx.preSeason) {
+      return `Keep this squad. ${detail} Changes are still free until the Gameweek 1 deadline, so nothing is committed.`;
+    }
+    if (ctx.freeTransfers >= MAX_FREE_TRANSFERS) {
+      return `Hold. You are at the ${MAX_FREE_TRANSFERS}-transfer cap, so a rolled transfer is now worth nothing - but ${detail.charAt(0).toLowerCase()}${detail.slice(1)}`;
+    }
+    return `Roll your transfer. ${detail}`;
+  };
+
   if (!best || best.transfers === 0) {
     return {
       action: 'hold',
-      headline: ctx.freeTransfers < MAX_FREE_TRANSFERS
-        ? `Roll your transfer. No shortlisted move clears the ${o.minimumGain.toFixed(1)}-point bar over ${ctx.gameweeks.length} gameweeks.`
-        : `Hold. You are at the ${MAX_FREE_TRANSFERS}-transfer cap, so a rolled transfer is now worth nothing - but no shortlisted move improves the squad either.`,
+      headline: holdReason(`No shortlisted move clears the ${o.minimumGain.toFixed(1)}-point bar over ${ctx.gameweeks.length} gameweeks.`),
       plan: best ?? null,
     };
   }
   if (best.netGain < o.minimumGain) {
     return {
       action: 'hold',
-      headline: `Roll your transfer. The best shortlisted move gains only ${best.netGain.toFixed(1)} points over ${ctx.gameweeks.length} gameweeks.`,
+      headline: holdReason(`The best shortlisted move gains only ${best.netGain.toFixed(1)} points over ${ctx.gameweeks.length} gameweeks.`),
       plan: best,
     };
   }

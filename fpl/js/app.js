@@ -15,7 +15,7 @@ import {
 import { loadBestSnapshot, loadState, saveState, clearState, readSnapshotFile, exportState, importState } from './store.js';
 import {
   emptyState, initialSquad, validateSquad, applyTransfers, declareChip,
-  advanceGameweek, squadValue, squadPlayers, sellValue,
+  advanceGameweek, squadValue, squadPlayers, sellValue, isPreSeason, freeTransfersAvailable,
 } from './squad.js';
 import { projectSquad, teamGamesPlayed, startProbability, recentRole } from './xp.js';
 import { optimiseLineup, lineupDelta } from './lineup.js';
@@ -139,8 +139,13 @@ function updateSaveStatus() {
 function renderMeta() {
   const { state, snapshot } = app;
   $('#meta-gameweek').textContent = state.gameweek;
-  $('#meta-transfers').textContent = state.freeTransfers >= MAX_FREE_TRANSFERS
-    ? `${state.freeTransfers} (max)` : state.freeTransfers;
+  $('#meta-transfers').textContent = isPreSeason(state)
+    ? 'Unlimited'
+    : state.freeTransfers >= MAX_FREE_TRANSFERS
+      ? `${state.freeTransfers} (max)` : state.freeTransfers;
+  $('#meta-transfers').title = isPreSeason(state)
+    ? 'Transfers are free and unlimited until the Gameweek 1 deadline. The first free transfer arrives in Gameweek 2.'
+    : '';
   $('#meta-chip').textContent = CHIPS[state.activeChip]?.name ?? 'No chip';
   if (hasSquad()) {
     const value = squadValue(state, snapshot);
@@ -921,7 +926,7 @@ function renderPlans(result) {
   const chipName = result.chip === 'none' ? 'no chip' : CHIPS[result.chip].name;
   const protectedCount = result.protectedIds?.length ?? 0;
   context.textContent = `Gameweeks ${result.gameweeks[0]}–${result.gameweeks.at(-1)} · `
-    + `${result.freeTransfers} free transfer${result.freeTransfers === 1 ? '' : 's'} · ${chipName} · `
+    + `${result.preSeason ? 'unlimited free transfers' : `${result.freeTransfers} free transfer${result.freeTransfers === 1 ? '' : 's'}`} · ${chipName} · `
     + `${result.consideredPlans} legal combinations evaluated`
     + (protectedCount ? `, ${result.blockedPlans} ruled out by ${protectedCount} protected player${protectedCount === 1 ? '' : 's'}` : '')
     + '.';
@@ -970,7 +975,9 @@ function renderPlans(result) {
     meta.className = 'small muted';
     meta.textContent = `${plan.transfers} transfer${plan.transfers === 1 ? '' : 's'}`
       + (plan.hits ? ` · −${plan.hits} hit` : '')
-      + ` · bank ${money(plan.bankAfter)} · ${plan.freeTransfersAfter} free left`;
+      + ` · bank ${money(plan.bankAfter)}`
+      // Pre-season there is no allowance to have any of left.
+      + (result.preSeason ? '' : ` · ${plan.freeTransfersAfter} free left`);
     summary.append(move, gain, meta);
     details.append(summary);
 
@@ -1085,10 +1092,11 @@ function renderManualTransfer() {
       pending.append(chip);
     });
 
-    const free = app.state.freeTransfers;
+    const free = freeTransfersAvailable(app.state);
     const used = app.pendingTransfers.length;
     const cost = CHIPS[app.state.activeChip]?.unlimitedTransfers ? 0 : Math.max(0, used - free) * 4;
-    const summary = note(`${used} transfer${used === 1 ? '' : 's'}, ${free} free — `
+    const allowance = free === Infinity ? 'unlimited before the Gameweek 1 deadline' : `${free} free`;
+    const summary = note(`${used} transfer${used === 1 ? '' : 's'}, ${allowance} — `
       + (cost ? `costs ${cost} points.` : 'no points hit.'));
 
     const confirm = document.createElement('button');
@@ -1119,9 +1127,12 @@ function renderManualTransfer() {
 
 function wireManageTab() {
   $('#advance-gw').addEventListener('click', () => {
+    const wasPreSeason = isPreSeason(app.state);
     app.state = advanceGameweek(app.state);
     app.lineup = null; app.planResult = null; app.pendingTransfers = [];
-    toast(`Now Gameweek ${app.state.gameweek}. ${app.state.freeTransfers} free transfer(s).`, 'good');
+    toast(wasPreSeason
+      ? `Gameweek 1 is locked in. You now have 1 free transfer for Gameweek ${app.state.gameweek}.`
+      : `Now Gameweek ${app.state.gameweek}. ${app.state.freeTransfers} free transfer(s).`, 'good');
     renderAll();
   });
   $('#apply-gw').addEventListener('click', () => {
