@@ -32,6 +32,7 @@ store it at all, a banner says so rather than letting you work on and lose it.
    legal combination is scored over the horizon and ranked.
 3. **Record what you did.** Apply a suggested plan, or enter your moves by hand.
    Either way the squad, bank, selling prices and free-transfer count update.
+   *Advance to next gameweek* on the *Manage* tab locks a gameweek in.
 4. **Declare chips.** The tool **never suggests a chip**. You tell it which chip
    you're playing and it feeds that into everything else.
 
@@ -46,6 +47,11 @@ store it at all, a banner says so rather than letting you work on and lose it.
 - **Free transfers** — a hit is only recommended when the extra points clear the
   4-point cost. A banked transfer is given option value (default 0.8 points), so
   a marginal move is correctly rejected in favour of rolling.
+- **The pre-season exception** — before the Gameweek 1 deadline the squad can be
+  rebuilt as often as you like at no cost, so there is no allowance to spend or
+  bank. The counter reads *Unlimited*, no plan carries a hit, and holding is
+  described as keeping the squad rather than rolling a transfer that does not
+  exist. The first free transfer is granted on advancing to Gameweek 2.
 - **Legality** — 2/5/5/3 by position and a maximum of 3 players per club are
   enforced on every candidate plan.
 - **Protected players** — anyone you have marked as too important to lose is
@@ -314,7 +320,7 @@ An honest ranking of what this model is still missing, worst first.
 node --test 'fpl/tests/*.test.mjs'
 ```
 
-83 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
+90 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
 squad legality, the XI optimiser, chip behaviour, the recent-role model, team-news
 parsing, protected players, and the transfer planner
 (including that it refuses unaffordable moves, respects the club limit, and takes
