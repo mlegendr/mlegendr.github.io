@@ -122,14 +122,57 @@ by hand from the *Manage* tab.
 Re-run the refresh before each deadline — prices, form, injuries and `ep_next`
 all move during the week.
 
+## Injuries, minutes and predicted lineups
+
+**Injuries and availability come from FPL itself.** The `status`,
+`chance_of_playing_next_round` and `news` fields are the official feed, updated
+after press conferences, and every refresh picks them up. A player flagged
+injured projects zero and drops out of the XI; a doubt is scaled by his stated
+percentage. The news text is shown next to him in the squad table.
+
+**Who is actually starting is inferred from recent selections.** The refresh
+pulls per-match history for the most-selected players, and the model weights the
+last six matches towards the present. That separates a regular starter from
+someone with identical season minutes who has been benched since August:
+
+| Recent matches | Start probability | Expected minutes |
+| --- | --- | --- |
+| Started all 6 | 100% | 90 |
+| Benched 3, then started 3 | 70% | 66 |
+| Started 3, then benched 3 | 30% | 34 |
+| Benched all 6 | 0% | 10 |
+
+**Predicted lineups have to be pasted in, and here is why.** Confirmed lineups
+are published about an hour before kickoff — but the FPL deadline is 90 minutes
+before the first match, so they always land *after* you have had to decide. They
+cannot inform the decision. What is genuinely predictive is journalists' and
+tipsters' expected XIs, and no free API publishes those. So the *Manage* tab has
+a team-news box: paste what you have read, one player per line.
+
+```
+Haaland out
+Tzolis doubt 25
+Mbeumo bench
+Gabriel start
+Groß 60
+```
+
+`out`, `doubt N`, `bench`, `start`, or a plain number for expected minutes. Names
+are matched against your squad and shortlist only, so a surname is enough. Every
+line is reported back as applied, unmatched or unreadable — nothing is guessed.
+The overrides feed straight into the XI, the captaincy and the transfer planner.
+
+Re-run the refresh close to the deadline: FPL updates its injury news through
+Friday press conferences, and prices move daily.
+
 ## How projections are built
 
 Each player's gameweek is priced one 2026/27 scoring rule at a time
 (`js/xp.js`), then summed over their fixtures — zero for a blank, both games for
 a double:
 
-- **Minutes** drive everything. Season minutes-per-game are blended with a prior,
-  weighted by how many games have been played, then scaled by availability.
+- **Minutes** drive everything. Recent selections lead, with the season rate and
+  a prior filling in behind them, all scaled by availability.
 - **Goals and assists** come from expected-goals and expected-assists per 90,
   scaled by minutes and fixture difficulty, with a small form adjustment.
 - **Clean sheets** use a Poisson model on expected goals conceded, and only pay
@@ -149,10 +192,11 @@ distant projections are less certain.
 ### Where the model is weak
 
 - **Early season.** With few games played, projections lean on the minutes prior
-  and `ep_next`. Use the *Manage* tab to override expected minutes for players
-  you know are nailed or rotation risks.
-- **Rotation and cup congestion** are not modelled. A manual availability
-  override is the right tool.
+  and `ep_next`. Use the team-news box for players you know are nailed or
+  rotation risks.
+- **Rotation for cup congestion or a midweek European tie** is not modelled —
+  the history shows what happened, not what a manager is planning. Team news is
+  the right tool.
 - **Bonus and defensive contribution** are rate-based; a player whose role has
   just changed will be mispriced until the data catches up.
 - The `defensive_contribution` API field has appeared both as points and as raw
@@ -168,8 +212,9 @@ point for a decision, not the decision.
 node --test 'fpl/tests/*.test.mjs'
 ```
 
-62 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
-squad legality, the XI optimiser, chip behaviour, and the transfer planner
+73 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
+squad legality, the XI optimiser, chip behaviour, the recent-role model, team-news
+parsing, and the transfer planner
 (including that it refuses unaffordable moves, respects the club limit, and takes
 a hit only when it pays), plus name resolution against accented and shared
 surnames.

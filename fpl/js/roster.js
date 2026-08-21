@@ -191,3 +191,83 @@ export function describeResolution(snapshot, resolution) {
   }
   return lines;
 }
+
+/**
+ * Parse team news pasted from wherever you read it, one player per line:
+ *
+ *   Haaland out            → will not play
+ *   Tzolis doubt 25        → 25% chance of playing
+ *   Mbeumo bench           → expected off the bench
+ *   Gabriel start          → expected to start
+ *   Groß 60                → expected to play 60 minutes
+ *
+ * Blank lines and lines starting with # are ignored. The separator between the
+ * name and the verdict may be a colon, a dash or just a space.
+ */
+export function parseTeamNews(text) {
+  const entries = [];
+  const problems = [];
+
+  for (const raw of String(text).split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+
+    const match = line.match(/^(.+?)\s*[:–—-]?\s*(out|doubt|bench|start|starting|benched|\d+%?)\s*(\d+)?%?\s*$/i);
+    if (!match) { problems.push(`Could not read: "${line}"`); continue; }
+
+    const [, name, verdictRaw, numberRaw] = match;
+    const verdict = verdictRaw.toLowerCase();
+    const entry = { name: name.trim(), source: line };
+
+    if (verdict === 'out') {
+      entry.availability = 0;
+    } else if (verdict === 'doubt') {
+      entry.availability = numberRaw != null ? clampUnit(Number(numberRaw) / 100) : 0.5;
+    } else if (verdict === 'bench' || verdict === 'benched') {
+      entry.minutes = 20;
+    } else if (verdict === 'start' || verdict === 'starting') {
+      entry.minutes = 85;
+    } else {
+      // A bare number is minutes, unless it was written as a percentage.
+      const value = Number(verdict.replace('%', ''));
+      if (!Number.isFinite(value)) { problems.push(`Could not read: "${line}"`); continue; }
+      if (verdict.endsWith('%')) entry.availability = clampUnit(value / 100);
+      else entry.minutes = Math.max(0, Math.min(90, value));
+    }
+
+    entries.push(entry);
+  }
+
+  return { entries, problems };
+}
+
+const clampUnit = (v) => Math.max(0, Math.min(1, v));
+
+/**
+ * Match parsed team news against a specific set of players (normally your
+ * squad plus shortlist), so a surname only has to be unique among those.
+ */
+export function applyTeamNews(players, entries) {
+  const applied = [];
+  const unmatched = [];
+
+  for (const entry of entries) {
+    const ranked = players
+      .map((player) => ({ player, score: matchScore(player, entry.name) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score);
+
+    if (ranked.length === 0) { unmatched.push({ ...entry, reason: 'no match' }); continue; }
+    if (ranked.length > 1 && ranked[0].score === ranked[1].score) {
+      unmatched.push({ ...entry, reason: `ambiguous: ${ranked.slice(0, 3).map((x) => x.player.label).join(' / ')}` });
+      continue;
+    }
+
+    const override = {};
+    if (entry.minutes != null) override.minutes = entry.minutes;
+    if (entry.availability != null) override.availability = entry.availability;
+    applied.push({ player: ranked[0].player, override, source: entry.source });
+  }
+
+  return { applied, unmatched };
+}

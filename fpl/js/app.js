@@ -17,10 +17,10 @@ import {
   emptyState, initialSquad, validateSquad, applyTransfers, declareChip,
   advanceGameweek, squadValue, squadPlayers, sellValue,
 } from './squad.js';
-import { projectSquad, teamGamesPlayed } from './xp.js';
+import { projectSquad, teamGamesPlayed, startProbability, recentRole } from './xp.js';
 import { optimiseLineup, lineupDelta } from './lineup.js';
 import { planTransfers, describe, PLANNER_DEFAULTS } from './transfers.js';
-import { resolveSquad, resolveSelections, describeResolution } from './roster.js';
+import { resolveSquad, resolveSelections, describeResolution, parseTeamNews, applyTeamNews } from './roster.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -270,6 +270,7 @@ function renderSquadTab() {
 
   const players = squadPlayers(app.state, app.snapshot);
   const { gameweeks, projections } = project(players, 6);
+  const teamGames = teamGamesPlayed(app.snapshot);
   const body = $('#squad-table tbody');
   body.replaceChildren();
 
@@ -281,6 +282,11 @@ function renderSquadTab() {
     const status = statusLabel(player);
     const row = document.createElement('tr');
 
+    const pStart = startProbability(app.snapshot, player, {
+      override: app.state.overrides[player.id],
+      teamGames: teamGames.get(player.teamId),
+    });
+
     row.append(
       td(player.name),
       td(POSITIONS[player.position].short),
@@ -288,13 +294,46 @@ function renderSquadTab() {
       td(money(player.price), 'num'),
       td(money(player.sellPrice), 'num'),
       tdNode(fixtureStrip(player.teamId, gameweeks)),
+      tdNode(startCell(pStart, player)),
       td((projection.byGameweek.get(gameweeks[0]) ?? 0).toFixed(1), 'num'),
       td(projection.total.toFixed(1), 'num'),
-      tdNode(pill(status.text, status.className)),
+      tdNode(statusCell(status, player)),
     );
-    if (player.news) row.title = player.news;
     body.append(row);
   }
+}
+
+/** Start probability, with what it was inferred from. */
+function startCell(probability, player) {
+  const span = document.createElement('span');
+  span.textContent = `${Math.round(probability * 100)}%`;
+  const role = recentRole(player);
+  span.title = role
+    ? `From the last ${role.matches} matches: started about ${Math.round(role.startProbability * 100)}% of them.`
+    : 'No per-match history in this snapshot — estimated from season minutes. '
+      + 'Re-run the refresh script to pull match history.';
+  if (probability < 0.6) span.className = 'news';
+  return span;
+}
+
+/** Availability plus whatever FPL's own injury feed says. */
+function statusCell(status, player) {
+  const wrap = document.createElement('span');
+  wrap.append(pill(status.text, status.className));
+  if (player.news) {
+    const news = document.createElement('div');
+    news.className = 'news';
+    news.textContent = player.news;
+    wrap.append(news);
+  }
+  const override = app.state.overrides[player.id];
+  if (override && Object.keys(override).length) {
+    const flag = document.createElement('div');
+    flag.className = 'small muted';
+    flag.textContent = 'manually adjusted';
+    wrap.append(flag);
+  }
+  return wrap;
 }
 
 function renderChipSelect() {
@@ -473,7 +512,7 @@ function runLineup() {
   const priced = players.map((p) => ({
     ...p,
     points: projections.get(p.id).byGameweek.get(gameweek) ?? 0,
-    startProbability: app.snapshot.availability(p),
+    startProbability: startProbability(app.snapshot, p, { override: app.state.overrides[p.id] }),
   }));
   const lineup = optimiseLineup(priced, chip);
   app.lineup = lineup;
@@ -903,6 +942,14 @@ function wireManageTab() {
       renderAll();
     } catch (err) { toast(err.message, 'error'); }
   });
+  $('#team-news-apply').addEventListener('click', applyTeamNewsFromBox);
+  $('#team-news-clear').addEventListener('click', () => {
+    app.state = { ...app.state, overrides: {} };
+    app.lineup = null;
+    $('#team-news-result').replaceChildren();
+    toast('All manual adjustments cleared.', 'good');
+    renderAll();
+  });
   $('#reset-state').addEventListener('click', () => {
     if (!confirm('Delete the saved squad, transfers and chip history from this browser?')) return;
     clearState();
@@ -910,6 +957,50 @@ function wireManageTab() {
     app.builder = []; app.targets = []; app.lineup = null; app.planResult = null;
     renderAll();
   });
+}
+
+/**
+ * Turn pasted team news into per-player overrides. Matching is limited to the
+ * squad plus the transfer shortlist, so a surname only needs to be unique
+ * among the players you actually care about.
+ */
+function applyTeamNewsFromBox() {
+  const box = $('#team-news-result');
+  box.replaceChildren();
+
+  if (!hasSquad()) { toast('Add your squad first.', 'error'); return; }
+  const { entries, problems } = parseTeamNews($('#team-news').value);
+  if (entries.length === 0 && problems.length === 0) return;
+
+  const pool = [
+    ...squadPlayers(app.state, app.snapshot),
+    ...app.targets.map((id) => app.snapshot.player(id)).filter(Boolean),
+  ];
+  const { applied, unmatched } = applyTeamNews(pool, entries);
+
+  const overrides = { ...app.state.overrides };
+  for (const item of applied) {
+    overrides[item.player.id] = { ...(overrides[item.player.id] ?? {}), ...item.override };
+  }
+  app.state = { ...app.state, overrides };
+  app.lineup = null;
+
+  const lines = applied.map((a) => {
+    const parts = [];
+    if (a.override.minutes != null) parts.push(`${a.override.minutes} minutes`);
+    if (a.override.availability != null) parts.push(`${Math.round(a.override.availability * 100)}% to play`);
+    return `✓ ${a.player.label}: ${parts.join(', ')}`;
+  });
+  for (const u of unmatched) lines.push(`✗ ${u.name} — ${u.reason}`);
+  for (const p of problems) lines.push(`✗ ${p}`);
+
+  const report = document.createElement('pre');
+  report.className = 'hint';
+  report.textContent = lines.join('\n');
+  box.append(report);
+
+  toast(`${applied.length} adjustment(s) applied.`, applied.length ? 'good' : 'error');
+  renderAll();
 }
 
 function renderManageTab() {

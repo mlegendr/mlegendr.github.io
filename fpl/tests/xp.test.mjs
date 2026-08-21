@@ -107,3 +107,100 @@ test('expected minutes blend season data with the prior', () => {
   const blended = expectedMinutes(snapshot, { ...player, minutes: 180 }, { teamGames: 2, minutesPrior: 68 });
   assert.ok(blended > 68 && blended < 90, `expected between prior and 90, got ${blended}`);
 });
+
+// ── Recent-role model ──────────────────────────────────────────────────────
+
+import { recentRole, startProbability } from '../js/xp.js';
+
+/** Attach a run of matches to a player: `true` = started, `false` = benched. */
+function withHistory(snapshot, id, pattern, { startMinutes = 90, subMinutes = 10 } = {}) {
+  snapshot.player(id).recent = pattern.map((started, i) => ({
+    round: i + 1,
+    minutes: started ? startMinutes : subMinutes,
+    started,
+    points: 2,
+  }));
+  return snapshot.player(id);
+}
+
+test('a nailed starter and a benched player are told apart', () => {
+  const snapshot = buildSnapshot({
+    playerSpecs: [
+      { id: 1, position: MID, team: 1, minutes: 540 },
+      { id: 2, position: MID, team: 1, minutes: 540 },
+    ],
+  });
+  // Identical season minutes, opposite recent roles.
+  const nailed = withHistory(snapshot, 1, [true, true, true, true, true, true]);
+  const dropped = withHistory(snapshot, 2, [true, true, true, false, false, false]);
+
+  assert.equal(recentRole(nailed).startProbability, 1);
+  assert.ok(recentRole(dropped).startProbability < 0.35,
+    'recent benchings should dominate earlier starts');
+  assert.ok(recentRole(nailed).minutes > recentRole(dropped).minutes + 40);
+});
+
+test('recency is weighted: just-won a place beats just-lost one', () => {
+  const snapshot = buildSnapshot({
+    playerSpecs: [{ id: 1, position: MID, team: 1 }, { id: 2, position: MID, team: 1 }],
+  });
+  const rising = withHistory(snapshot, 1, [false, false, false, true, true, true]);
+  const falling = withHistory(snapshot, 2, [true, true, true, false, false, false]);
+
+  assert.ok(recentRole(rising).startProbability > 0.65);
+  assert.ok(recentRole(falling).startProbability < 0.35);
+});
+
+test('expected minutes follow the recent role, not the season average', () => {
+  const snapshot = buildSnapshot({ playerSpecs: [{ id: 1, position: MID, team: 1, minutes: 540 }] });
+  const player = snapshot.player(1);
+
+  const seasonOnly = expectedMinutes(snapshot, player, { teamGames: 6 });
+  withHistory(snapshot, 1, [false, false, false, false, false, false]);
+  const benchedNow = expectedMinutes(snapshot, player, { teamGames: 6 });
+
+  assert.ok(benchedNow < seasonOnly - 30,
+    `a player now benched should project far fewer minutes (${benchedNow} vs ${seasonOnly})`);
+});
+
+test('a manual minutes override still beats the history', () => {
+  const snapshot = buildSnapshot({ playerSpecs: [{ id: 1, position: MID, team: 1 }] });
+  withHistory(snapshot, 1, [true, true, true, true, true, true]);
+  assert.equal(expectedMinutes(snapshot, snapshot.player(1), { override: { minutes: 20 } }), 20);
+});
+
+test('start probability folds in whether the player is fit', () => {
+  const snapshot = buildSnapshot({
+    playerSpecs: [
+      { id: 1, position: MID, team: 1 },
+      { id: 2, position: MID, team: 1, status: 'd', chance: 25 },
+      { id: 3, position: MID, team: 1, status: 'i' },
+    ],
+  });
+  for (const id of [1, 2, 3]) withHistory(snapshot, id, [true, true, true, true, true, true]);
+
+  assert.equal(startProbability(snapshot, snapshot.player(1)), 1);
+  assert.ok(Math.abs(startProbability(snapshot, snapshot.player(2)) - 0.25) < 1e-9);
+  assert.equal(startProbability(snapshot, snapshot.player(3)), 0, 'injured means no start');
+});
+
+test('without history the model falls back to the season share', () => {
+  const snapshot = buildSnapshot({ playerSpecs: [{ id: 1, position: MID, team: 1, minutes: 270 }] });
+  const p = startProbability(snapshot, snapshot.player(1), { teamGames: 6 });
+  assert.ok(Math.abs(p - 0.5) < 1e-9, `270 of 540 minutes is a half share, got ${p}`);
+});
+
+test('a benched player projects fewer points than an identical starter', () => {
+  const snapshot = buildSnapshot({
+    playerSpecs: [
+      { id: 1, position: FWD, team: 1, xG90: 0.6, xA90: 0.2, minutes: 540 },
+      { id: 2, position: FWD, team: 1, xG90: 0.6, xA90: 0.2, minutes: 540 },
+    ],
+  });
+  withHistory(snapshot, 1, [true, true, true, true, true, true]);
+  withHistory(snapshot, 2, [false, false, false, false, false, false]);
+
+  const starter = expectedPoints(snapshot, snapshot.player(1), 1, { epBlend: 0, teamGames: 6 }).total;
+  const benched = expectedPoints(snapshot, snapshot.player(2), 1, { epBlend: 0, teamGames: 6 }).total;
+  assert.ok(benched < starter / 2, `${benched} should be far below ${starter}`);
+});

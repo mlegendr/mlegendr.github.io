@@ -181,3 +181,60 @@ test('a recorded price separates two players a name and club cannot', () => {
   assert.equal(byPrice.status, 'resolved');
   assert.equal(byPrice.player.id, 17);
 });
+
+// ── Team news ──────────────────────────────────────────────────────────────
+
+import { parseTeamNews, applyTeamNews } from '../js/roster.js';
+
+test('team news is parsed from the shapes people actually write', () => {
+  const { entries, problems } = parseTeamNews(`
+    # Friday press conference
+    Haaland out
+    Tzolis: doubt 25
+    Mbeumo - bench
+    Gabriel start
+    Groß 60
+
+    Sangaré 75%
+  `);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(entries.map((e) => [e.name, e.minutes ?? null, e.availability ?? null]), [
+    ['Haaland', null, 0],
+    ['Tzolis', null, 0.25],
+    ['Mbeumo', 20, null],
+    ['Gabriel', 85, null],
+    ['Groß', 60, null],
+    ['Sangaré', null, 0.75],
+  ]);
+});
+
+test('an unreadable line is reported rather than silently dropped', () => {
+  const { entries, problems } = parseTeamNews('Haaland out\nsomething entirely unparseable here\n');
+  assert.equal(entries.length, 1);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /Could not read/);
+});
+
+test('team news is matched against the squad and turned into overrides', () => {
+  const snapshot = realLikeSnapshot();
+  const squad = [3, 10, 13].map((id) => snapshot.player(id));   // Gabriel, Tzolis, Haaland
+
+  const { entries } = parseTeamNews('Haaland out\nTzolis doubt 25\nGabriel start');
+  const { applied, unmatched } = applyTeamNews(squad, entries);
+
+  assert.deepEqual(unmatched, []);
+  assert.deepEqual(applied.map((a) => [a.player.id, a.override]), [
+    [13, { availability: 0 }],
+    [10, { availability: 0.25 }],
+    [3, { minutes: 85 }],
+  ]);
+});
+
+test('a player who is not in the given set is reported, not guessed at', () => {
+  const snapshot = realLikeSnapshot();
+  const squad = [13].map((id) => snapshot.player(id));
+  const { entries } = parseTeamNews('Salah out');
+  const { applied, unmatched } = applyTeamNews(squad, entries);
+  assert.equal(applied.length, 0);
+  assert.equal(unmatched[0].reason, 'no match');
+});

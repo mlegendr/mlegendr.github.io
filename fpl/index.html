@@ -91,7 +91,7 @@
               <tr>
                 <th>Player</th><th>Pos</th><th>Club</th>
                 <th class="num">Price</th><th class="num">Sell</th>
-                <th>Next 6</th><th class="num">Next GW</th><th class="num">6 GW</th><th>Status</th>
+                <th>Next 6</th><th class="num">Start</th><th class="num">Next GW</th><th class="num">6 GW</th><th>Status &amp; news</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -197,6 +197,19 @@
       <div id="chips-used" class="pill-row"></div>
       <p class="muted small">The first set expires at the Gameweek 19 deadline; a fresh set
          arrives for Gameweek 20. This tool records what you chose - it never advises a chip.</p>
+    </div>
+
+    <div class="card">
+      <h2>Team news</h2>
+      <p class="muted small">Paste what you have read about expected lineups — one player per
+         line. This is how predicted-lineup information gets into the projections; the app
+         does not fetch it, because no free source publishes it before the deadline.</p>
+      <textarea id="team-news" rows="6" placeholder="Haaland out&#10;Tzolis doubt 25&#10;Mbeumo bench&#10;Gabriel start&#10;Groß 60"></textarea>
+      <div class="actions">
+        <button id="team-news-apply" class="primary">Apply team news</button>
+        <button id="team-news-clear" class="ghost">Clear all overrides</button>
+      </div>
+      <div id="team-news-result"></div>
     </div>
 
     <div class="card">

@@ -28,6 +28,17 @@ export const DEFAULTS = {
   formSwing: 0.12,
   /** Later gameweeks are less certain, so they are discounted when ranking plans. */
   horizonDecay: 0.92,
+  /** How many recent matches inform the start probability. */
+  recentMatches: 6,
+  /**
+   * Weight decay per match going back, so last weekend counts most. At 0.75 a
+   * run of three straight starts after a spell out reads as roughly a 70%
+   * chance of starting, which is about right for a player who has just won his
+   * place back.
+   */
+  recencyDecay: 0.75,
+  /** Recent matches needed before they fully outweigh the season rate. */
+  recentPriorMatches: 2,
 };
 
 /** Expected goals conceded by the team facing a fixture of this difficulty. */
@@ -78,8 +89,66 @@ export function teamGamesPlayed(snapshot) {
 }
 
 /**
- * Expected minutes in a match the player features in, blending season-to-date
- * minutes with a prior. A manual override always wins.
+ * What the last few matches say about a player's role.
+ *
+ * Season averages cannot tell a regular starter from someone who played every
+ * minute in August and has been benched since. Recent matches can, so they are
+ * weighted towards the present and dominate the season rate when available.
+ *
+ * @returns {{startProbability:number, minutes:number, matches:number}|null}
+ */
+export function recentRole(player, opts = {}) {
+  const o = { ...DEFAULTS, ...opts };
+  const history = player.recent ?? [];
+  if (history.length === 0) return null;
+
+  const window = history.slice(-o.recentMatches);
+  let weight = 0, started = 0, startedMinutes = 0, startedWeight = 0, benchMinutes = 0, benchWeight = 0;
+
+  window.forEach((match, i) => {
+    // The most recent match carries the most weight.
+    const w = o.recencyDecay ** (window.length - 1 - i);
+    weight += w;
+    if (match.started) {
+      started += w;
+      startedMinutes += w * match.minutes;
+      startedWeight += w;
+    } else {
+      benchMinutes += w * match.minutes;
+      benchWeight += w;
+    }
+  });
+
+  const startProbability = weight > 0 ? started / weight : 0;
+  const whenStarting = startedWeight > 0 ? startedMinutes / startedWeight : 85;
+  const whenNot = benchWeight > 0 ? benchMinutes / benchWeight : 8;
+
+  return {
+    startProbability,
+    minutes: clamp(startProbability * whenStarting + (1 - startProbability) * whenNot, 0, 90),
+    matches: window.length,
+  };
+}
+
+/**
+ * Probability the player starts, from recent selections, scaled by whether he
+ * is fit. Used for the vice-captain tiebreak and shown in the squad table.
+ */
+export function startProbability(snapshot, player, opts = {}) {
+  const availability = opts.override?.availability ?? snapshot.availability(player);
+  if (availability <= 0) return 0;
+  const role = recentRole(player, opts);
+  if (role) return availability * role.startProbability;
+
+  // Without per-match history, fall back to the share of a full season played.
+  const games = opts.teamGames ?? teamGamesPlayed(snapshot).get(player.teamId) ?? 0;
+  if (games <= 0) return availability * 0.7;
+  return availability * clamp(player.minutes / (games * 90), 0, 1);
+}
+
+/**
+ * Expected minutes in a match the player features in. Recent selections lead;
+ * the season rate and a prior fill in behind them. A manual override wins.
  */
 export function expectedMinutes(snapshot, player, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
@@ -87,11 +156,20 @@ export function expectedMinutes(snapshot, player, opts = {}) {
 
   const games = o.teamGames ?? teamGamesPlayed(snapshot).get(player.teamId) ?? 0;
   const prior = o.override?.minutesPrior ?? o.minutesPrior;
-  if (games <= 0) return clamp(prior, 0, 90);
+  const seasonEstimate = games > 0
+    ? (() => {
+        const seasonRate = clamp(player.minutes / games, 0, 90);
+        const w = games / (games + o.minutesPriorGames);
+        return w * seasonRate + (1 - w) * prior;
+      })()
+    : prior;
 
-  const seasonRate = clamp(player.minutes / games, 0, 90);
-  const w = games / (games + o.minutesPriorGames);
-  return clamp(w * seasonRate + (1 - w) * prior, 0, 90);
+  const role = recentRole(player, o);
+  if (!role) return clamp(seasonEstimate, 0, 90);
+
+  // Trust recent matches more the more of them there are.
+  const w = role.matches / (role.matches + o.recentPriorMatches);
+  return clamp(w * role.minutes + (1 - w) * seasonEstimate, 0, 90);
 }
 
 function per90(total, minutes, fallback = 0) {

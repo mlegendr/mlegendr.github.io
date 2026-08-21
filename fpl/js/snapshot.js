@@ -99,6 +99,23 @@ export function loadSnapshot(raw) {
   // Surnames repeat across the league, so every display name carries its club.
   for (const p of players.values()) {
     p.label = `${p.name} (${teams.get(p.teamId)?.short ?? '?'})`;
+    p.recent = [];
+  }
+
+  // Per-match history, when the refresh fetched it. This is what separates a
+  // regular starter from a squad player with the same season minutes.
+  for (const [id, detail] of Object.entries(raw.details ?? {})) {
+    const player = players.get(Number(id));
+    if (!player) continue;
+    player.recent = (detail.recent ?? []).map((h) => ({
+      round: h.round,
+      minutes: num(h.minutes),
+      // `starts` arrived with the 2024/25 API. Without it, treat an hour on the
+      // pitch as a start - imperfect, but far better than ignoring the match.
+      started: h.starts != null ? num(h.starts) > 0 : num(h.minutes) >= 60,
+      points: num(h.total_points),
+    }));
+    player.historyPast = detail.history_past ?? [];
   }
 
   const fixtures = (raw.fixtures ?? []).map((f) => ({
