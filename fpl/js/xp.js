@@ -39,6 +39,12 @@ export const DEFAULTS = {
   recencyDecay: 0.75,
   /** Recent matches needed before they fully outweigh the season rate. */
   recentPriorMatches: 2,
+  /**
+   * Smoothing on the observed start rate, in units of recency weight. Keeps a
+   * short run of matches from implying a player is certain to start or certain
+   * not to - roughly a 7% floor and a 92% ceiling over six matches.
+   */
+  startSmoothing: 0.3,
 };
 
 /** Expected goals conceded by the team facing a fixture of this difficulty. */
@@ -123,10 +129,82 @@ export function recentRole(player, opts = {}) {
   const whenStarting = startedWeight > 0 ? startedMinutes / startedWeight : 85;
   const whenNot = benchWeight > 0 ? benchMinutes / benchWeight : 8;
 
+  // Of the matches he did not start, how often did he get on at all?
+  const benchMatches = window.filter((m) => !m.started);
+  const cameOn = benchMatches.filter((m) => m.minutes > 0).length;
+  const subAppearanceRate = benchMatches.length > 0 ? cameOn / benchMatches.length : 0.6;
+
   return {
     startProbability,
+    weight,                    // total recency weight, for smoothing
+    subAppearanceRate,
+    minutesIfStarting: clamp(whenStarting, 1, 90),
+    minutesIfSub: clamp(whenNot > 0 ? whenNot : 15, 1, 90),
     minutes: clamp(startProbability * whenStarting + (1 - startProbability) * whenNot, 0, 90),
     matches: window.length,
+  };
+}
+
+/**
+ * How a player's minutes are actually distributed, rather than a single average.
+ *
+ * This distinction matters wherever scoring has a threshold. A player with a
+ * 50% chance of starting is not a man who plays 45 minutes every week: he plays
+ * ninety half the time and barely features the rest. Averaging the two before
+ * applying a threshold badly understates his chance of clearing it.
+ */
+export function minutesProfile(snapshot, player, opts = {}) {
+  const o = { ...DEFAULTS, ...opts };
+  const availability = o.override?.availability ?? snapshot.availability(player);
+
+  // An explicit minutes override describes one expected outing, so treat it as
+  // a near-certain start of that length.
+  if (o.override?.minutes != null) {
+    const minutes = clamp(o.override.minutes, 0, 90);
+    const starts = minutes >= 45 ? 1 : 0;
+    return {
+      availability,
+      pStart: availability * starts,
+      pAppearance: availability * (minutes > 0 ? 1 : 0),
+      minutesIfStarting: minutes,
+      minutesIfSub: minutes,
+      expectedMinutes: minutes,
+    };
+  }
+
+  const role = recentRole(player, o);
+  const blended = expectedMinutes(snapshot, player, o);
+
+  if (!role) {
+    // Without per-match history, infer a start share from the season's minutes.
+    const games = o.teamGames ?? teamGamesPlayed(snapshot).get(player.teamId) ?? 0;
+    const share = games > 0 ? clamp(player.minutes / (games * 90), 0, 1) : clamp(blended / 90, 0, 1);
+    return {
+      availability,
+      pStart: availability * share,
+      pAppearance: availability * Math.min(1, share + 0.25),
+      minutesIfStarting: Math.max(blended, 70),
+      minutesIfSub: 15,
+      expectedMinutes: availability * blended,
+    };
+  }
+
+  // Smooth the observed start rate rather than blending it with season minutes.
+  // Minutes are a poor proxy for starts - a substitute who plays half an hour
+  // every week accumulates them without ever starting - and a handful of
+  // matches should never imply absolute certainty either way.
+  const alpha = o.startSmoothing;
+  const pStartRaw = clamp(
+    (role.startProbability * role.weight + alpha) / (role.weight + 2 * alpha), 0, 1);
+  const pAppearRaw = clamp(pStartRaw + (1 - pStartRaw) * role.subAppearanceRate, 0, 1);
+
+  return {
+    availability,
+    pStart: availability * pStartRaw,
+    pAppearance: availability * pAppearRaw,
+    minutesIfStarting: role.minutesIfStarting,
+    minutesIfSub: role.minutesIfSub,
+    expectedMinutes: availability * blended,
   };
 }
 
@@ -135,15 +213,7 @@ export function recentRole(player, opts = {}) {
  * is fit. Used for the vice-captain tiebreak and shown in the squad table.
  */
 export function startProbability(snapshot, player, opts = {}) {
-  const availability = opts.override?.availability ?? snapshot.availability(player);
-  if (availability <= 0) return 0;
-  const role = recentRole(player, opts);
-  if (role) return availability * role.startProbability;
-
-  // Without per-match history, fall back to the share of a full season played.
-  const games = opts.teamGames ?? teamGamesPlayed(snapshot).get(player.teamId) ?? 0;
-  if (games <= 0) return availability * 0.7;
-  return availability * clamp(player.minutes / (games * 90), 0, 1);
+  return minutesProfile(snapshot, player, opts).pStart;
 }
 
 /**
@@ -184,13 +254,17 @@ function per90(total, minutes, fallback = 0) {
 export function fixtureExpectedPoints(snapshot, player, fixture, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
   const pos = player.position;
-  const availability = o.override?.availability ?? snapshot.availability(player);
+  const profile = minutesProfile(snapshot, player, o);
+  const { availability, pStart, pAppearance } = profile;
   if (availability <= 0) return { total: 0, parts: {} };
 
-  const mins = expectedMinutes(snapshot, player, o);
-  const minShare = availability * (mins / 90);
-  const pApp = availability * logistic((mins - 14) / 8);
-  const p60 = availability * logistic((mins - 58) / 7);
+  const mins = profile.expectedMinutes;
+  // Linear scoring (goals, assists, cards) only cares about total minutes.
+  const minShare = clamp(mins / 90, 0, 1);
+  const pApp = pAppearance;
+  // Reaching 60 minutes is overwhelmingly a starter's event.
+  const p60 = pStart * logistic((profile.minutesIfStarting - 58) / 7)
+    + Math.max(0, pAppearance - pStart) * logistic((profile.minutesIfSub - 58) / 7);
 
   const attackMult = lookup(ATTACK_BY_DIFFICULTY, fixture.difficulty) * (fixture.home ? 1.05 : 0.95);
   const concede = lookup(CONCEDE_BY_DIFFICULTY, fixture.difficulty) * (fixture.home ? 0.94 : 1.06);
@@ -227,7 +301,7 @@ export function fixtureExpectedPoints(snapshot, player, fixture, opts = {}) {
     parts.penaltySaves = 0;
   }
 
-  parts.defensiveContribution = defconPoints(player, minShare, defconMult, o);
+  parts.defensiveContribution = defconPoints(player, profile, defconMult, o);
 
   parts.bonus = per90(player.bonus, player.minutes) * minShare * o.bonusDamping;
 
@@ -237,7 +311,7 @@ export function fixtureExpectedPoints(snapshot, player, fixture, opts = {}) {
   parts.ownGoals = per90(player.ownGoals, player.minutes) * minShare * OWN_GOAL_POINTS;
 
   const total = Object.values(parts).reduce((a, b) => a + b, 0);
-  return { total, parts, expectedMinutes: mins, availability, p60, concede, attackMult };
+  return { total, parts, expectedMinutes: mins, availability, p60, pStart, concede, attackMult, profile };
 }
 
 /**
@@ -245,12 +319,17 @@ export function fixtureExpectedPoints(snapshot, player, fixture, opts = {}) {
  * A per-player `defconRate` override (chance of hitting the threshold in a full
  * match) is honoured first, since it is the cleanest thing a manager can supply.
  */
-function defconPoints(player, minShare, defconMult, o) {
+function defconPoints(player, profile, defconMult, o) {
   const threshold = DEFCON_THRESHOLD[player.position];
   if (!Number.isFinite(threshold)) return 0;   // goalkeepers are not eligible
 
+  const { pStart, pAppearance, minutesIfStarting, minutesIfSub } = profile;
+  const pSubOnly = Math.max(0, pAppearance - pStart);
+
   if (o.override?.defconRate != null) {
-    return DEFCON_POINTS * clamp(o.override.defconRate, 0, 1) * minShare * defconMult;
+    // The override is the chance of clearing the threshold in a full match, so
+    // it only applies when he actually starts.
+    return DEFCON_POINTS * clamp(o.override.defconRate, 0, 1) * pStart;
   }
 
   const raw = player.defensiveContribution90
@@ -263,9 +342,16 @@ function defconPoints(player, minShare, defconMult, o) {
   // count per 90 (roughly 5-20). Treat anything above 3 as an action count and
   // price it through the Poisson threshold; otherwise it is already points.
   if (raw > 3) {
-    const actions = raw * minShare * defconMult;
-    return DEFCON_POINTS * poissonAtLeast(actions, threshold);
+    // Average the probability over the outcomes, not the minutes: a rotation
+    // risk either starts and has a real chance of clearing 10 or 12 actions,
+    // or does not start and has almost none. Blending the minutes first would
+    // understate him badly.
+    const hitRate = (minutes) => poissonAtLeast(raw * (minutes / 90) * defconMult, threshold);
+    return DEFCON_POINTS * (pStart * hitRate(minutesIfStarting) + pSubOnly * hitRate(minutesIfSub));
   }
+
+  // Already expressed as points per 90, so it scales with minutes.
+  const minShare = pStart * (minutesIfStarting / 90) + pSubOnly * (minutesIfSub / 90);
   return raw * minShare * defconMult;
 }
 

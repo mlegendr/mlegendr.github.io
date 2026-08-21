@@ -179,8 +179,13 @@ test('start probability folds in whether the player is fit', () => {
   });
   for (const id of [1, 2, 3]) withHistory(snapshot, id, [true, true, true, true, true, true]);
 
-  assert.equal(startProbability(snapshot, snapshot.player(1)), 1);
-  assert.ok(Math.abs(startProbability(snapshot, snapshot.player(2)) - 0.25) < 1e-9);
+  const fit = startProbability(snapshot, snapshot.player(1));
+  // Six straight starts is strong but not certain, so smoothing caps it short of 1.
+  assert.ok(fit > 0.9 && fit < 1, `expected a high but not certain start rate, got ${fit}`);
+
+  const doubtful = startProbability(snapshot, snapshot.player(2));
+  assert.ok(Math.abs(doubtful - fit * 0.25) < 1e-9, 'a 25% doubt scales the same start rate');
+
   assert.equal(startProbability(snapshot, snapshot.player(3)), 0, 'injured means no start');
 });
 
@@ -203,4 +208,57 @@ test('a benched player projects fewer points than an identical starter', () => {
   const starter = expectedPoints(snapshot, snapshot.player(1), 1, { epBlend: 0, teamGames: 6 }).total;
   const benched = expectedPoints(snapshot, snapshot.player(2), 1, { epBlend: 0, teamGames: 6 }).total;
   assert.ok(benched < starter / 2, `${benched} should be far below ${starter}`);
+});
+
+test('a rotation risk still gets credit for defensive contribution when he starts', () => {
+  const snapshot = buildSnapshot({
+    playerSpecs: [
+      { id: 1, position: DEF, team: 1, dc90: 12, minutes: 540 },
+      { id: 2, position: DEF, team: 1, dc90: 12, minutes: 540 },
+    ],
+  });
+  const nailed = withHistory(snapshot, 1, [true, true, true, true, true, true]);
+  const rotated = withHistory(snapshot, 2, [true, false, true, false, true, false]);
+
+  const dc = (player) => expectedPoints(snapshot, player, 1, { epBlend: 0, teamGames: 6 })
+    .fixtures[0].detail.parts.defensiveContribution;
+
+  const nailedDc = dc(nailed);
+  const rotatedDc = dc(rotated);
+
+  // He starts roughly half the time, so he should earn roughly half as much -
+  // not the near-zero that scaling the rate by average minutes would give.
+  const ratio = rotatedDc / nailedDc;
+  assert.ok(ratio > 0.3 && ratio < 0.7,
+    `a half-time starter should earn roughly half the defensive contribution, got ${ratio.toFixed(2)}`);
+});
+
+test('threshold scoring beats the old rate-scaling for a half-time starter', () => {
+  const snapshot = buildSnapshot({ playerSpecs: [{ id: 1, position: DEF, team: 1, dc90: 12, minutes: 270 }] });
+  const player = withHistory(snapshot, 1, [true, false, true, false, true, false]);
+  const dc = expectedPoints(snapshot, player, 1, { epBlend: 0, teamGames: 6 })
+    .fixtures[0].detail.parts.defensiveContribution;
+
+  // Scaling the rate by a 50% minutes share and then applying the threshold
+  // would give about 0.17 points. Averaging over outcomes gives about four
+  // times that, which is the honest answer.
+  assert.ok(dc > 0.5, `expected meaningful credit, got ${dc.toFixed(2)}`);
+});
+
+test('a clean sheet is a starter event, not an average-minutes one', () => {
+  const snapshot = buildSnapshot({
+    playerSpecs: [
+      { id: 1, position: DEF, team: 1, minutes: 540 },
+      { id: 2, position: DEF, team: 1, minutes: 540 },
+    ],
+  });
+  const nailed = withHistory(snapshot, 1, [true, true, true, true, true, true]);
+  const cameos = withHistory(snapshot, 2, [false, false, false, false, false, false], { subMinutes: 20 });
+
+  const cs = (player) => expectedPoints(snapshot, player, 1, { epBlend: 0, teamGames: 6 })
+    .fixtures[0].detail.parts.cleanSheet;
+
+  assert.ok(cs(nailed) > 0.5);
+  assert.ok(cs(cameos) < cs(nailed) * 0.2,
+    'a 20-minute substitute rarely reaches the 60 minutes a clean sheet needs');
 });

@@ -182,6 +182,10 @@ a double:
   approximation.
 - **Defensive contribution** prices the 2-point threshold properly: 10 CBIT for
   defenders, 12 CBIRT for midfielders and forwards, and nothing for goalkeepers.
+  Threshold scoring averages over outcomes rather than over minutes — a player
+  with a 50% chance of starting plays ninety minutes half the time, not
+  forty-five every week, and those give very different odds of clearing ten
+  defensive actions.
 - **Bonus** is estimated from season bonus per 90, damped towards the mean.
 - For the immediate gameweek the result is blended with FPL's own `ep_next`
   (35% by default) as a regulariser.
@@ -212,7 +216,7 @@ point for a decision, not the decision.
 node --test 'fpl/tests/*.test.mjs'
 ```
 
-73 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
+77 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
 squad legality, the XI optimiser, chip behaviour, the recent-role model, team-news
 parsing, and the transfer planner
 (including that it refuses unaffordable moves, respects the club limit, and takes
