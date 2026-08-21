@@ -1,0 +1,7 @@
+# Live FPL data, refetched by tools/refresh_fpl_data.py. Generated, changes
+# daily, and specific to when you last refreshed - so it is not committed by
+# default. Force-add it (git add -f) if you want the published site to carry
+# data of its own.
+fpl/data/snapshot.json
+
+.DS_Store

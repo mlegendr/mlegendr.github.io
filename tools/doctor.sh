@@ -32,12 +32,15 @@ else
 fi
 
 # 2. Uncommitted changes, which silently block a pull ------------------------
-if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
-  bad "you have uncommitted local changes, which can block a pull"
-  git status --short | sed 's/^/          /'
+# Only edits to tracked files can block a pull. Untracked files - above all the
+# generated snapshot - are expected, and must never be stashed away.
+tracked_changes=$(git status --porcelain --untracked-files=no 2>/dev/null)
+if [ -n "$tracked_changes" ]; then
+  bad "you have uncommitted edits to tracked files, which can block a pull"
+  printf '%s\n' "$tracked_changes" | sed 's/^/          /'
   fix "git stash    (then 'git stash pop' to get them back)"
 else
-  ok "working tree is clean"
+  ok "no uncommitted edits that would block a pull"
 fi
 
 # 3. Up to date with the remote ---------------------------------------------
