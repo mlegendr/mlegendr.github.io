@@ -1,0 +1,28 @@
+{
+  "season": "2026/27",
+  "gameweek": 1,
+  "formation": "3-4-3",
+  "note": "Initial squad. Names are resolved against the loaded FPL snapshot on import; purchase prices default to the price at import time.",
+  "picks": [
+    { "name": "Kinsky",        "club": "TOT", "position": "GKP", "start": true },
+    { "name": "Dubravka",      "club": "TOT", "position": "GKP", "start": false, "benchOrder": 0 },
+
+    { "name": "Gabriel",       "club": "ARS", "position": "DEF", "start": true },
+    { "name": "Mosquera",      "club": "ARS", "position": "DEF", "start": true },
+    { "name": "Maguire",       "club": "MUN", "position": "DEF", "start": true },
+    { "name": "Egan",          "club": "HUL", "position": "DEF", "start": false, "benchOrder": 1 },
+    { "name": "Thomas",        "club": "COV", "position": "DEF", "start": false, "benchOrder": 3 },
+
+    { "name": "B.Fernandes",   "club": "MUN", "position": "MID", "start": true },
+    { "name": "Le Fée",        "club": "SUN", "position": "MID", "start": true },
+    { "name": "Groß",          "club": "BHA", "position": "MID", "start": true },
+    { "name": "Mbeumo",        "club": "MUN", "position": "MID", "start": true },
+    { "name": "Slater",        "club": "HUL", "position": "MID", "start": false, "benchOrder": 2 },
+
+    { "name": "Haaland",       "club": "MCI", "position": "FWD", "start": true },
+    { "name": "João Pedro",    "club": "CHE", "position": "FWD", "start": true },
+    { "name": "Igor Jesus",    "club": "NFO", "position": "FWD", "start": true }
+  ],
+  "captain": "Haaland",
+  "viceCaptain": "João Pedro"
+}

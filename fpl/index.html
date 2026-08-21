@@ -63,8 +63,13 @@
       <div id="builder-selected" class="chips"></div>
       <div class="actions">
         <button id="builder-confirm" class="primary" disabled>Confirm squad</button>
+        <button id="builder-load-recorded" class="ghost">Load recorded squad</button>
+        <label class="filebutton">Load squad file
+          <input type="file" id="builder-squad-file" accept="application/json" hidden>
+        </label>
         <button id="builder-clear" class="ghost">Clear</button>
       </div>
+      <div id="builder-resolution"></div>
       <p id="builder-errors" class="errors"></p>
     </div>
 
@@ -106,6 +111,7 @@
       <p class="muted small">The XI, bench order and armbands that maximise projected points
          for this gameweek, given your declared chip.</p>
       <div id="lineup-summary" class="summary-row"></div>
+      <div id="lineup-changes"></div>
       <div id="pitch" class="pitch"></div>
       <div id="bench" class="bench"></div>
       <div id="armband-note"></div>

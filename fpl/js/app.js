@@ -18,8 +18,9 @@ import {
   advanceGameweek, squadValue, squadPlayers, sellValue,
 } from './squad.js';
 import { projectSquad, teamGamesPlayed } from './xp.js';
-import { optimiseLineup } from './lineup.js';
+import { optimiseLineup, lineupDelta } from './lineup.js';
 import { planTransfers, describe, PLANNER_DEFAULTS } from './transfers.js';
+import { resolveSquad, resolveSelections, describeResolution } from './roster.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -33,6 +34,7 @@ const app = {
   lineup: null,
   planResult: null,
   pendingTransfers: [],
+  recordedSelections: null,   // XI/armbands from a loaded squad file
 };
 
 // ── Boot ───────────────────────────────────────────────────────────────────
@@ -219,7 +221,22 @@ function wireSquadTab() {
   });
 
   $('#builder-confirm').addEventListener('click', confirmSquad);
-  $('#builder-clear').addEventListener('click', () => { app.builder = []; renderBuilder(); });
+  $('#builder-load-recorded').addEventListener('click', () => loadRecordedSquad('data/squad-2026-27.json'));
+  $('#builder-squad-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      applyResolution(JSON.parse(await file.text()));
+    } catch (err) {
+      toast(`Could not read that squad file: ${err.message}`, 'error');
+    }
+  });
+  $('#builder-clear').addEventListener('click', () => {
+    app.builder = [];
+    app.recordedSelections = null;
+    $('#builder-resolution').replaceChildren();
+    renderBuilder();
+  });
   $('#squad-edit').addEventListener('click', () => {
     app.builder = app.state.picks.map((p) => p.playerId);
     renderSquadTab();
@@ -348,11 +365,65 @@ function renderBuilder() {
   $('#builder-confirm').disabled = errors.length > 0 || ids.length !== SQUAD_SIZE;
 }
 
+/**
+ * Load a squad recorded by name and resolve it against the current snapshot.
+ * The result fills the builder rather than committing, so prices, budget and
+ * legality are all visible before anything is saved.
+ */
+async function loadRecordedSquad(url) {
+  try {
+    const response = await fetch(url, { cache: 'no-cache' });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    applyResolution(await response.json());
+  } catch (err) {
+    toast(`Could not load ${url}: ${err.message}`, 'error');
+  }
+}
+
+function applyResolution(squadFile) {
+  const resolution = resolveSquad(app.snapshot, squadFile);
+  app.builder = resolution.playerIds;
+  app.recordedSelections = resolution.ok ? resolveSelections(resolution, squadFile) : null;
+
+  const box = $('#builder-resolution');
+  box.replaceChildren();
+
+  const heading = document.createElement('p');
+  heading.className = 'small';
+  heading.textContent = resolution.ok
+    ? `All ${resolution.resolved.length} players matched. Check the prices, then confirm.`
+    : `Matched ${resolution.resolved.length} of ${squadFile.picks.length}. `
+      + 'Unmatched entries are listed below — add those players by hand.';
+  box.append(heading);
+
+  const list = document.createElement('pre');
+  list.className = 'hint';
+  list.textContent = describeResolution(app.snapshot, resolution).join('\n');
+  box.append(list);
+
+  for (const message of resolution.notes) box.append(note(message));
+  if (app.source === 'demo') {
+    box.append(note('This is the demo dataset, so real player names will not match. '
+      + 'Run tools/refresh_fpl_data.py first.'));
+  }
+  renderBuilder();
+}
+
 function confirmSquad() {
   try {
     const fresh = app.state.picks.length ? { ...app.state, picks: [], bank: 0 } : app.state;
     app.state = initialSquad(fresh, app.builder, app.snapshot);
+    if (app.recordedSelections) {
+      app.state = {
+        ...app.state,
+        savedXi: app.recordedSelections.startingXi,
+        savedCaptain: app.recordedSelections.captain,
+        savedVice: app.recordedSelections.viceCaptain,
+      };
+    }
     app.builder = null;
+    app.recordedSelections = null;
+    $('#builder-resolution').replaceChildren();
     toast('Squad saved.', 'good');
     renderAll();
   } catch (err) {
@@ -417,6 +488,8 @@ function runLineup() {
     bench.append(card);
   });
 
+  renderLineupChanges(lineup);
+
   const vice = lineup.viceCaptain;
   $('#armband-note').innerHTML = `<p class="small muted">Captain <strong>${escapeHtml(lineup.captain.label ?? lineup.captain.name)}</strong>
     (${lineup.captain.points.toFixed(1)} projected, doubled${chip === '3xc' ? ' and tripled by the chip' : ''}).
@@ -437,6 +510,38 @@ function runLineup() {
       td(player.label ?? player.name), td(POSITIONS[player.position].short), td(role.get(player.id) ?? ''),
       td(fixtureText(detail)), td(player.points.toFixed(1), 'num'), td(explain(detail, player), 'wrap'),
     ]));
+  }
+}
+
+/** What the optimiser would change about the XI the manager currently has saved. */
+function renderLineupChanges(lineup) {
+  const box = $('#lineup-changes');
+  box.replaceChildren();
+  if (!app.state.savedXi?.length) {
+    box.append(note('No current XI recorded, so this is shown as a fresh selection. '
+      + 'Loading a squad file with a starting XI lets the app show you only what to change.'));
+    return;
+  }
+
+  const delta = lineupDelta(app.state.savedXi, lineup);
+  const label = (p) => `${p.label ?? p.name} (${POSITIONS[p.position].short}, ${p.points.toFixed(1)})`;
+
+  if (delta.in.length === 0) {
+    box.append(note('Your current XI is already the optimal one — no changes needed.'));
+  } else {
+    const paragraph = document.createElement('p');
+    paragraph.className = 'small';
+    paragraph.innerHTML = `<strong>Change ${delta.in.length}:</strong> bring in `
+      + `${delta.in.map(label).map(escapeHtml).join(', ')} · bench `
+      + `${delta.out.map(label).map(escapeHtml).join(', ')}.`;
+    box.append(paragraph);
+  }
+
+  const savedCaptain = app.state.savedCaptain;
+  if (savedCaptain && savedCaptain !== lineup.captain.id) {
+    const swap = app.snapshot.player(savedCaptain);
+    box.append(note(`Captaincy: the model prefers ${lineup.captain.label} `
+      + `(${lineup.captain.points.toFixed(1)}) over your current pick ${swap?.label ?? savedCaptain}.`));
   }
 }
 
@@ -771,7 +876,8 @@ function wireManageTab() {
     try {
       const { snapshot, raw } = await readSnapshotFile(e.target.files[0]);
       app.snapshot = snapshot;
-      describeDataSource({ source: 'snapshot', raw });
+      app.source = raw.demo ? 'demo' : 'snapshot';
+      describeDataSource({ source: app.source, raw });
       toast('Snapshot loaded.', 'good');
       renderAll();
     } catch (err) { toast(err.message, 'error'); }

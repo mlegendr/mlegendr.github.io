@@ -53,6 +53,33 @@ A chip is only *reserved* while it is selected — clear it before the deadline 
 you get it back. Advancing the gameweek spends it. The first set expires after
 GW19; a fresh set arrives for GW20.
 
+## Your recorded squad
+
+`fpl/data/squad-2026-27.json` holds the opening squad written down by name, club
+and position:
+
+```
+GK   Kinsky, Dubravka                          (TOT, TOT)
+DEF  Gabriel, Mosquera, Maguire, Egan, Thomas  (ARS, ARS, MUN, HUL, COV)
+MID  B.Fernandes, Le Fée, Groß, Mbeumo, Slater (MUN, SUN, BHA, MUN, HUL)
+FWD  Haaland (C), João Pedro (V), Igor Jesus   (MCI, CHE, NFO)
+```
+
+Press **Load recorded squad** on the *Squad* tab and the names are resolved
+against whatever snapshot is loaded, then dropped into the builder so you can
+check prices and budget before confirming. Matching normalises accents,
+punctuation and the German sharp s — `Kinsky` finds `Kinský`, `Groß` finds
+`Gross` — and uses the club as a tiebreaker when a surname is shared. A name
+that genuinely could mean two players is reported as ambiguous rather than
+guessed at.
+
+The recorded starting XI and armbands are kept too, so the *Lineup* tab tells
+you only what to **change** rather than restating the whole team.
+
+Purchase prices default to the price at import. If a player's price has already
+moved since you bought them, correct it after importing so the selling-price
+maths stays right.
+
 ## Getting real data
 
 The official FPL API does not send CORS headers, so a web page cannot fetch it.
@@ -122,10 +149,11 @@ point for a decision, not the decision.
 node --test 'fpl/tests/*.test.mjs'
 ```
 
-50 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
+60 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
 squad legality, the XI optimiser, chip behaviour, and the transfer planner
 (including that it refuses unaffordable moves, respects the club limit, and takes
-a hit only when it pays).
+a hit only when it pays), plus name resolution against accented and shared
+surnames.
 
 ## Layout
 
@@ -139,8 +167,10 @@ fpl/
   js/lineup.js      XI, bench order, captain and vice
   js/squad.js       squad state, transfers, budget, chips
   js/transfers.js   transfer planner
+  js/roster.js      resolves a squad written by name into player ids
   js/store.js       persistence and data loading
   js/app.js         UI
+  data/squad-2026-27.json  your recorded opening squad
   tests/            node --test suites
 tools/
   refresh_fpl_data.py     fetches a live snapshot
