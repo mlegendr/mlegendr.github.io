@@ -568,7 +568,7 @@ function runLineup() {
     const detail = detailByPlayer.get(player.id);
     body.append(rowOf([
       td(player.label ?? player.name), td(POSITIONS[player.position].short), td(role.get(player.id) ?? ''),
-      td(fixtureText(detail)), td(player.points.toFixed(1), 'num'), td(explain(detail, player), 'wrap'),
+      td(fixtureText(detail)), td(player.points.toFixed(1), 'num'), whyCell(detail, player),
     ]));
   }
 }
@@ -636,30 +636,107 @@ function fixtureText(detail) {
   }).join(' + ');
 }
 
-/** Plain-language reasons behind a projection, biggest components first. */
-function explain(detail, player) {
-  if (!detail || detail.blank) return 'No fixture this gameweek.';
+/** Every component of a projection, in the order they are worth explaining. */
+const COMPONENT_NAMES = {
+  appearance: 'minutes played',
+  goals: 'goals',
+  assists: 'assists',
+  cleanSheet: 'clean sheet',
+  defensiveContribution: 'defensive contribution',
+  saves: 'saves',
+  penaltySaves: 'penalty saves',
+  bonus: 'bonus',
+  goalsConceded: 'goals conceded',
+  cards: 'cards',
+  penaltiesMissed: 'penalty misses',
+  ownGoals: 'own goals',
+};
+
+/**
+ * The full arithmetic behind a projection, summing to the number displayed.
+ * Every scoring rule is listed, however small, and the blend with FPL's own
+ * projection is shown as its own line rather than quietly shifting the total.
+ */
+function breakdown(detail) {
   const parts = {};
-  for (const fixture of detail.fixtures) {
+  for (const fixture of detail.fixtures ?? []) {
     for (const [key, value] of Object.entries(fixture.detail.parts ?? {})) {
       parts[key] = (parts[key] ?? 0) + value;
     }
   }
-  const names = {
-    appearance: 'minutes', goals: 'goals', assists: 'assists', cleanSheet: 'clean sheet',
-    saves: 'saves', defensiveContribution: 'defensive contribution', bonus: 'bonus',
-    goalsConceded: 'goals conceded', cards: 'cards', penaltySaves: 'penalty saves',
-    penaltiesMissed: 'penalty misses', ownGoals: 'own goals',
-  };
-  const ranked = Object.entries(parts)
-    .filter(([, v]) => Math.abs(v) >= 0.15)
+  const rows = Object.entries(parts)
+    .filter(([, v]) => Math.abs(v) >= 0.005)
     .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
-    .slice(0, 4)
-    .map(([k, v]) => `${names[k] ?? k} ${v > 0 ? '+' : ''}${v.toFixed(1)}`);
+    .map(([key, value]) => ({ label: COMPONENT_NAMES[key] ?? key, value }));
+
+  return { rows, modelTotal: detail.modelTotal ?? 0, blend: detail.blend, total: detail.total ?? 0 };
+}
+
+/** One-line summary: the biggest few components, for the table cell itself. */
+function explain(detail, player) {
+  if (!detail || detail.blank) return 'No fixture this gameweek.';
+  if (app.snapshot.availability(player) <= 0) {
+    return `Not expected to play: ${player.news || 'unavailable'}.`;
+  }
+  const { rows } = breakdown(detail);
+  const shown = rows.filter((r) => Math.abs(r.value) >= 0.15).slice(0, 3);
+  const hidden = rows.length - shown.length;
+  const text = shown.map((r) => `${r.label} ${r.value > 0 ? '+' : ''}${r.value.toFixed(1)}`).join(', ');
+  return hidden > 0 ? `${text} +${hidden} more` : text;
+}
+
+/** An expandable cell: summary line, with the full reconciling sum inside. */
+function whyCell(detail, player) {
+  const cell = document.createElement('td');
+  cell.className = 'wrap';
+
+  const summary = explain(detail, player);
+  if (!detail || detail.blank || app.snapshot.availability(player) <= 0) {
+    cell.textContent = summary;
+    return cell;
+  }
+
+  const { rows, modelTotal, blend, total } = breakdown(detail);
+  const details = document.createElement('details');
+  details.className = 'why';
+  const head = document.createElement('summary');
+  head.textContent = summary;
+  details.append(head);
+
+  // Plain rows rather than a nested table: a table inside a table cell makes
+  // every "tbody tr" selector on the page ambiguous.
+  const list = document.createElement('div');
+  list.className = 'why-list';
+  for (const row of rows) list.append(whyRow(row.label, row.value));
+
+  if (blend) {
+    list.append(whyRow('model total', modelTotal, 'subtotal'));
+    list.append(whyRow(`FPL's own projection (${Math.round(blend.weight * 100)}% weight)`,
+      blend.epNext, 'blend'));
+  }
+  list.append(whyRow('projected', total, 'total'));
+
+  details.append(list);
+  cell.append(details);
+
   const availability = app.snapshot.availability(player);
-  if (availability <= 0) return `Not expected to play: ${player.news || 'unavailable'}.`;
-  const flag = availability < 1 ? `scaled to ${Math.round(availability * 100)}% chance of playing` : '';
-  return [ranked.join(', '), flag].filter(Boolean).join(' · ');
+  if (availability < 1) {
+    cell.append(note(`Scaled to a ${Math.round(availability * 100)}% chance of playing.`));
+  }
+  return cell;
+}
+
+function whyRow(label, value, kind = '') {
+  const row = document.createElement('div');
+  row.className = `why-row${kind ? ` why-${kind}` : ''}`;
+  const name = document.createElement('span');
+  name.textContent = label;
+  const amount = document.createElement('span');
+  amount.className = 'why-value';
+  const signed = kind === '' && value > 0 ? '+' : '';
+  amount.textContent = `${signed}${value.toFixed(2)}`;
+  row.append(name, amount);
+  return row;
 }
 
 // ── Transfers tab ──────────────────────────────────────────────────────────

@@ -367,11 +367,16 @@ export function expectedPoints(snapshot, player, gameweek, opts = {}) {
 
   const perFixture = fixtures.map((f) =>
     fixtureExpectedPoints(snapshot, player, f, { ...o, override, teamGames }));
-  let total = perFixture.reduce((a, r) => a + r.total, 0);
+  const modelTotal = perFixture.reduce((a, r) => a + r.total, 0);
+  let total = modelTotal;
 
   // FPL publishes its own one-gameweek projection; blending regularises ours.
+  // Recorded rather than applied silently, so the breakdown shown to the user
+  // reconciles with the number they are shown.
+  let blend = null;
   if (gameweek === snapshot.nextEvent && player.epNext != null && o.epBlend > 0
       && snapshot.availability(player) > 0 && override?.minutes == null) {
+    blend = { epNext: player.epNext, weight: o.epBlend };
     total = (1 - o.epBlend) * total + o.epBlend * player.epNext;
   }
 
@@ -379,6 +384,8 @@ export function expectedPoints(snapshot, player, gameweek, opts = {}) {
     playerId: player.id,
     gameweek,
     total,
+    modelTotal,
+    blend,
     fixtures: fixtures.map((f, i) => ({ ...f, points: perFixture[i].total, detail: perFixture[i] })),
     blank: fixtures.length === 0,
     double: fixtures.length > 1,

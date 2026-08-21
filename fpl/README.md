@@ -219,6 +219,12 @@ a double:
 Later gameweeks are discounted (0.92 per week) when ranking transfer plans, since
 distant projections are less certain.
 
+The **Why** column on the *Lineup* tab shows the three largest components inline
+and how many more there are. Expanding it lists every component, however small,
+then the model total, then the blend with FPL's own projection as its own line —
+so the figures add up to the number in the Projected column rather than leaving
+part of it unexplained.
+
 ### Where the model is weak
 
 - **Early season.** With few games played, projections lean on the minutes prior
