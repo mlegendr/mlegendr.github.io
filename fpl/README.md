@@ -108,11 +108,25 @@ data you are looking at. `./tools/start.sh 9000` uses a different port and
 
 ```sh
 python3 tools/refresh_fpl_data.py      # writes fpl/data/snapshot.json
-python3 -m http.server -d fpl 8123
+python3 tools/serve.py 8123            # serves fpl/ with caching disabled
 ```
 
 On Windows, run those two directly (`py -3` instead of `python3`); the shell
 script needs Git Bash or WSL.
+
+`tools/serve.py` sends `no-store`, so after pulling new code a plain browser
+refresh always runs the current version — no hard reload needed.
+
+### After pulling changes
+
+```sh
+# Ctrl-C the running server first
+git pull
+./tools/start.sh
+```
+
+Then refresh the browser tab. Your squad is in the browser's local storage, not
+in any file, so pulling code and refreshing data never disturb it.
 
 The app tries live data first, falls back to `data/snapshot.json`, and finally to
 a **demo dataset of invented clubs and players** so the interface always works.

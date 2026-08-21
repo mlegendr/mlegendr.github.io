@@ -43,4 +43,4 @@ echo
 echo "  FPL Squad Manager:  http://localhost:$PORT"
 echo "  Stop with Ctrl-C."
 echo
-exec "$PY" -m http.server -d fpl "$PORT" --bind 127.0.0.1
+exec "$PY" tools/serve.py "$PORT"
