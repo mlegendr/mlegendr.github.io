@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FPL Squad Manager</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-main">
+    <h1>FPL Squad Manager</h1>
+    <p class="season">2026/27</p>
+  </div>
+  <div class="topbar-meta">
+    <div class="stat"><span class="stat-label">Gameweek</span><strong id="meta-gameweek">-</strong></div>
+    <div class="stat"><span class="stat-label">Squad value</span><strong id="meta-value">-</strong></div>
+    <div class="stat"><span class="stat-label">Bank</span><strong id="meta-bank">-</strong></div>
+    <div class="stat"><span class="stat-label">Free transfers</span><strong id="meta-transfers">-</strong></div>
+    <div class="stat"><span class="stat-label">Chip</span><strong id="meta-chip">-</strong></div>
+  </div>
+</header>
+
+<div id="databanner" class="banner" hidden></div>
+<div id="toast" class="toast" hidden></div>
+
+<nav class="tabs" role="tablist">
+  <button class="tab" role="tab" data-tab="squad" aria-selected="true">Squad</button>
+  <button class="tab" role="tab" data-tab="lineup" aria-selected="false">Lineup</button>
+  <button class="tab" role="tab" data-tab="transfers" aria-selected="false">Transfers</button>
+  <button class="tab" role="tab" data-tab="manage" aria-selected="false">Manage</button>
+</nav>
+
+<main>
+  <!-- ─────────── Squad ─────────── -->
+  <section id="panel-squad" class="panel" role="tabpanel">
+    <div id="squad-empty" class="empty" hidden>
+      <h2>Build your squad</h2>
+      <p>Add 15 players: 2 goalkeepers, 5 defenders, 5 midfielders and 3 forwards, for
+         £100.0m or less, with no more than 3 from any one club.</p>
+      <p class="muted">Before the Gameweek 1 deadline transfers are unlimited and free,
+         so nothing here is permanent yet.</p>
+    </div>
+
+    <div id="squad-builder" class="card" hidden>
+      <h2>Add players</h2>
+      <div class="search-row">
+        <input type="search" id="builder-search" placeholder="Search a player by name" autocomplete="off">
+        <select id="builder-position">
+          <option value="">All positions</option>
+          <option value="1">Goalkeepers</option>
+          <option value="2">Defenders</option>
+          <option value="3">Midfielders</option>
+          <option value="4">Forwards</option>
+        </select>
+      </div>
+      <div id="builder-results" class="results"></div>
+      <div class="builder-progress">
+        <div id="builder-counts" class="pill-row"></div>
+        <div id="builder-budget" class="budget"></div>
+      </div>
+      <div id="builder-selected" class="chips"></div>
+      <div class="actions">
+        <button id="builder-confirm" class="primary" disabled>Confirm squad</button>
+        <button id="builder-clear" class="ghost">Clear</button>
+      </div>
+      <p id="builder-errors" class="errors"></p>
+    </div>
+
+    <div id="squad-view" hidden>
+      <div class="card">
+        <div class="card-head">
+          <h2>Squad</h2>
+          <div class="card-actions">
+            <label class="inline">Chip this gameweek
+              <select id="chip-select"></select>
+            </label>
+            <button id="squad-edit" class="ghost">Replace squad</button>
+          </div>
+        </div>
+        <p id="chip-note" class="muted small"></p>
+        <div class="table-scroll">
+          <table id="squad-table" class="grid">
+            <thead>
+              <tr>
+                <th>Player</th><th>Pos</th><th>Club</th>
+                <th class="num">Price</th><th class="num">Sell</th>
+                <th>Next 6</th><th class="num">Next GW</th><th class="num">6 GW</th><th>Status</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────── Lineup ─────────── -->
+  <section id="panel-lineup" class="panel" role="tabpanel" hidden>
+    <div class="card">
+      <div class="card-head">
+        <h2>Optimal starting XI</h2>
+        <button id="lineup-run" class="primary">Optimise XI</button>
+      </div>
+      <p class="muted small">The XI, bench order and armbands that maximise projected points
+         for this gameweek, given your declared chip.</p>
+      <div id="lineup-summary" class="summary-row"></div>
+      <div id="pitch" class="pitch"></div>
+      <div id="bench" class="bench"></div>
+      <div id="armband-note"></div>
+      <div class="table-scroll">
+        <table id="lineup-table" class="grid">
+          <thead><tr><th>Player</th><th>Pos</th><th>Role</th><th>Fixture</th><th class="num">Projected</th><th>Why</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────── Transfers ─────────── -->
+  <section id="panel-transfers" class="panel" role="tabpanel" hidden>
+    <div class="card">
+      <h2>Transfer targets</h2>
+      <p class="muted small">Add the players you are considering. Only these can come in -
+         the planner will not invent alternatives.</p>
+      <div class="search-row">
+        <input type="search" id="target-search" placeholder="Search a player to shortlist" autocomplete="off">
+        <select id="target-position">
+          <option value="">All positions</option>
+          <option value="1">Goalkeepers</option>
+          <option value="2">Defenders</option>
+          <option value="3">Midfielders</option>
+          <option value="4">Forwards</option>
+        </select>
+      </div>
+      <div id="target-results" class="results"></div>
+      <div id="target-list" class="chips"></div>
+
+      <div class="controls">
+        <label>Horizon
+          <select id="opt-horizon">
+            <option value="3">3 gameweeks</option>
+            <option value="6" selected>6 gameweeks</option>
+            <option value="8">8 gameweeks</option>
+          </select>
+        </label>
+        <label>Extra transfers to consider
+          <select id="opt-hits">
+            <option value="0">None (free transfers only)</option>
+            <option value="1">Up to 1 hit (-4)</option>
+            <option value="2" selected>Up to 2 hits (-8)</option>
+            <option value="3">Up to 3 hits (-12)</option>
+          </select>
+        </label>
+        <label>Value of a banked transfer
+          <input type="number" id="opt-ftvalue" min="0" max="3" step="0.1" value="0.8">
+        </label>
+        <button id="plan-run" class="primary">Suggest transfer strategy</button>
+      </div>
+
+      <div id="plan-recommendation"></div>
+      <div id="plan-results"></div>
+    </div>
+
+    <div class="card">
+      <h2>Record the transfers you actually made</h2>
+      <p class="muted small">Applying a plan updates your squad, bank and free transfers.
+         You can also enter a move by hand if you went a different way.</p>
+      <div id="manual-transfer" class="manual"></div>
+    </div>
+  </section>
+
+  <!-- ─────────── Manage ─────────── -->
+  <section id="panel-manage" class="panel" role="tabpanel" hidden>
+    <div class="card">
+      <h2>Gameweek</h2>
+      <p class="muted small">Advance once the gameweek is over. A free transfer accrues
+         (to a maximum of five) and a Free Hit squad reverts.</p>
+      <div class="actions">
+        <button id="advance-gw" class="primary">Advance to next gameweek</button>
+        <label class="inline">Set gameweek
+          <input type="number" id="set-gw" min="1" max="38" value="1">
+        </label>
+        <button id="apply-gw" class="ghost">Set</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Chips used</h2>
+      <div id="chips-used" class="pill-row"></div>
+      <p class="muted small">The first set expires at the Gameweek 19 deadline; a fresh set
+         arrives for Gameweek 20. This tool records what you chose - it never advises a chip.</p>
+    </div>
+
+    <div class="card">
+      <h2>Player adjustments</h2>
+      <p class="muted small">Override what the model assumes when you know better - expected
+         minutes, chance of playing, or how often a player hits his defensive-contribution threshold.</p>
+      <div id="overrides"></div>
+    </div>
+
+    <div class="card">
+      <h2>Data &amp; backup</h2>
+      <div id="data-status" class="muted small"></div>
+      <div class="actions">
+        <label class="filebutton">Load snapshot file
+          <input type="file" id="snapshot-file" accept="application/json" hidden>
+        </label>
+        <button id="export-state" class="ghost">Export squad</button>
+        <label class="filebutton">Import squad
+          <input type="file" id="import-state" accept="application/json" hidden>
+        </label>
+        <button id="reset-state" class="danger">Reset everything</button>
+      </div>
+      <pre class="hint">python3 tools/refresh_fpl_data.py    # writes fpl/data/snapshot.json</pre>
+    </div>
+
+    <div class="card">
+      <h2>History</h2>
+      <div id="log"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p class="muted small">Projections are estimates, not predictions. Scoring follows the
+     2026/27 rules: goalkeeper goals 10, defensive contribution 2 points at 10 CBIT for
+     defenders and 12 CBIRT for midfielders and forwards, five free transfers maximum,
+     two sets of chips.</p>
+</footer>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
