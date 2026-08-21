@@ -80,11 +80,23 @@ export function resolveEntry(snapshot, entry) {
   if (ranked.length === 0) return { status: 'missing', entry };
 
   const best = ranked[0];
-  const tied = ranked.filter((x) => x.score === best.score);
+  let tied = ranked.filter((x) => x.score === best.score);
+
+  // A recorded price separates two players the name and club cannot.
+  if (tied.length > 1 && entry.price != null) {
+    const exact = tied.filter((x) => x.player.price === entry.price);
+    if (exact.length === 1) tied = exact;
+  }
+
   if (tied.length > 1) {
     return { status: 'ambiguous', entry, candidates: tied.map((x) => x.player), note };
   }
-  return { status: 'resolved', entry, player: best.player, score: best.score, note };
+
+  const player = tied[0].player;
+  // A price that no longer matches means either the price moved since you
+  // bought, or this is the wrong player. Worth surfacing either way.
+  const priceDiffers = entry.price != null && player.price !== entry.price;
+  return { status: 'resolved', entry, player, score: tied[0].score, note, priceDiffers };
 }
 
 /**
@@ -118,8 +130,16 @@ export function resolveSquad(snapshot, squadFile) {
     }
   }
 
+  // Purchase prices come from the squad file where recorded, since that is what
+  // was actually paid; the live price only says what the player costs today.
+  const purchasePrices = {};
+  for (const r of resolved) {
+    if (r.entry.price != null) purchasePrices[r.player.id] = r.entry.price;
+  }
+
   return {
-    resolved, ambiguous, missing, notes,
+    resolved, ambiguous, missing, notes, purchasePrices,
+    priceMismatches: resolved.filter((r) => r.priceDiffers),
     playerIds: resolved.map((r) => r.player.id),
     ok: ambiguous.length === 0 && missing.length === 0 && resolved.length === entries.length,
   };
@@ -156,7 +176,10 @@ export function resolveSelections(resolution, squadFile) {
 export function describeResolution(snapshot, resolution) {
   const lines = [];
   for (const r of resolution.resolved) {
-    lines.push(`✓ ${r.entry.name} → ${r.player.label}, ${POSITIONS[r.player.position].short}`);
+    const price = r.priceDiffers
+      ? `, paid £${(r.entry.price / 10).toFixed(1)}m, now £${(r.player.price / 10).toFixed(1)}m`
+      : '';
+    lines.push(`✓ ${r.entry.name} → ${r.player.label}, ${POSITIONS[r.player.position].short}${price}`);
   }
   for (const a of resolution.ambiguous) {
     const shown = a.candidates.slice(0, 4).map((p) => p.label).join(' / ');

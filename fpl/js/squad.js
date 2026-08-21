@@ -31,11 +31,12 @@ export function emptyState(gameweek = 1) {
 }
 
 /** Build the opening squad. Before the GW1 deadline transfers are unlimited and free. */
-export function initialSquad(state, playerIds, snapshot, { budget = BUDGET } = {}) {
+export function initialSquad(state, playerIds, snapshot, { budget = BUDGET, purchasePrices = {} } = {}) {
   const picks = playerIds.map((id) => {
     const p = snapshot.player(id);
     if (!p) throw new Error(`Unknown player id ${id}.`);
-    return { playerId: id, purchasePrice: p.price };
+    // What you actually paid governs the selling price, not today's price.
+    return { playerId: id, purchasePrice: purchasePrices[id] ?? p.price };
   });
   const validation = validateSquad(picks.map((x) => x.playerId), snapshot);
   if (!validation.valid) throw new Error(validation.errors.join(' '));

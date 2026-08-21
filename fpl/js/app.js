@@ -35,6 +35,7 @@ const app = {
   planResult: null,
   pendingTransfers: [],
   recordedSelections: null,   // XI/armbands from a loaded squad file
+  purchasePrices: null,       // what was actually paid, from a loaded squad file
 };
 
 // ── Boot ───────────────────────────────────────────────────────────────────
@@ -234,6 +235,7 @@ function wireSquadTab() {
   $('#builder-clear').addEventListener('click', () => {
     app.builder = [];
     app.recordedSelections = null;
+    app.purchasePrices = null;
     $('#builder-resolution').replaceChildren();
     renderBuilder();
   });
@@ -322,11 +324,17 @@ function renderChipSelect() {
 function renderBuilder() {
   const ids = app.builder ?? [];
   const counts = { [GKP]: 0, [DEF]: 0, [MID]: 0, [FWD]: 0 };
+
+  // The £100.0m budget is spent at the price you paid. When a recorded squad is
+  // being imported that is the price in the file, not today's price - a squad
+  // whose players have since risen is not retrospectively over budget.
   let spend = 0;
+  let market = 0;
   for (const id of ids) {
     const player = app.snapshot.player(id);
     counts[player.position]++;
-    spend += player.price;
+    spend += app.purchasePrices?.[id] ?? player.price;
+    market += player.price;
   }
 
   const pills = $('#builder-counts');
@@ -338,7 +346,9 @@ function renderBuilder() {
   }
 
   const remaining = BUDGET - spend;
-  $('#builder-budget').textContent = `Spent ${money(spend)} · ${remaining < 0 ? 'over by ' + money(-remaining) : money(remaining) + ' left'}`;
+  const spent = market === spend ? `Spent ${money(spend)}`
+    : `Paid ${money(spend)}, now worth ${money(market)}`;
+  $('#builder-budget').textContent = `${spent} · ${remaining < 0 ? 'over by ' + money(-remaining) : money(remaining) + ' left'}`;
   $('#builder-budget').style.color = remaining < 0 ? 'var(--bad)' : '';
 
   const selected = $('#builder-selected');
@@ -347,7 +357,10 @@ function renderBuilder() {
     const player = app.snapshot.player(id);
     const chip = document.createElement('span');
     chip.className = 'chip';
-    chip.textContent = `${player.name} (${POSITIONS[player.position].short}, ${app.snapshot.team(player.teamId)?.short}, ${money(player.price)})`;
+    const paid = app.purchasePrices?.[id];
+    const priceText = paid != null && paid !== player.price
+      ? `${money(paid)} → ${money(player.price)}` : money(player.price);
+    chip.textContent = `${player.name} (${POSITIONS[player.position].short}, ${app.snapshot.team(player.teamId)?.short}, ${priceText})`;
     const remove = document.createElement('button');
     remove.type = 'button'; remove.textContent = '×'; remove.title = `Remove ${player.name}`;
     remove.addEventListener('click', () => {
@@ -384,6 +397,7 @@ function applyResolution(squadFile) {
   const resolution = resolveSquad(app.snapshot, squadFile);
   app.builder = resolution.playerIds;
   app.recordedSelections = resolution.ok ? resolveSelections(resolution, squadFile) : null;
+  app.purchasePrices = resolution.purchasePrices;
 
   const box = $('#builder-resolution');
   box.replaceChildren();
@@ -402,6 +416,11 @@ function applyResolution(squadFile) {
   box.append(list);
 
   for (const message of resolution.notes) box.append(note(message));
+  if (resolution.priceMismatches?.length) {
+    box.append(note(`${resolution.priceMismatches.length} player(s) cost something different now `
+      + 'than what is recorded. Purchase prices come from the squad file, which is right if the '
+      + 'price simply moved — but check the match is the player you meant.'));
+  }
   if (app.source === 'demo') {
     box.append(note('This is the demo dataset, so real player names will not match. '
       + 'Run tools/refresh_fpl_data.py first.'));
@@ -412,7 +431,8 @@ function applyResolution(squadFile) {
 function confirmSquad() {
   try {
     const fresh = app.state.picks.length ? { ...app.state, picks: [], bank: 0 } : app.state;
-    app.state = initialSquad(fresh, app.builder, app.snapshot);
+    app.state = initialSquad(fresh, app.builder, app.snapshot,
+      { purchasePrices: app.purchasePrices ?? {} });
     if (app.recordedSelections) {
       app.state = {
         ...app.state,
@@ -423,6 +443,7 @@ function confirmSquad() {
     }
     app.builder = null;
     app.recordedSelections = null;
+    app.purchasePrices = null;
     $('#builder-resolution').replaceChildren();
     toast('Squad saved.', 'good');
     renderAll();

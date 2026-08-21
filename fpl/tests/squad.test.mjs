@@ -160,3 +160,21 @@ test('a chip is only spent once the gameweek moves on', () => {
   assert.equal(spent.activeChip, 'none');
   assert.throws(() => declareChip(spent, 'bboost', snapshot), /already been used/);
 });
+
+test('a squad whose players have risen since purchase is still within budget', () => {
+  const specs = legalSquadSpecs();
+  const snapshot = buildSnapshot({ playerSpecs: specs });
+  const paid = Object.fromEntries(specs.map((s) => [s.id, s.price]));
+
+  // Every player rises £1.0m after being bought.
+  for (const spec of specs) snapshot.player(spec.id).price = spec.price + 10;
+
+  const state = initialSquad(emptyState(1), specs.map((s) => s.id), snapshot,
+    { purchasePrices: paid });
+  const spent = specs.reduce((a, s) => a + s.price, 0);
+  assert.equal(state.bank, 1000 - spent, 'the bank reflects what was paid');
+
+  const value = squadValue(state, snapshot);
+  assert.equal(value.market - value.selling, 15 * 5, 'half of each £1.0m rise is withheld');
+  assert.ok(value.market > spent, 'the squad is worth more than it cost');
+});

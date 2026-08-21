@@ -2,37 +2,38 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSnapshot } from './fixtures.mjs';
 import { GKP, DEF, MID, FWD } from '../js/rules.js';
-import { normalise, matchScore, resolveEntry, resolveSquad, resolveSelections } from '../js/roster.js';
+import { normalise, matchScore, resolveEntry, resolveSquad } from '../js/roster.js';
+import { emptyState, initialSquad, sellValue } from '../js/squad.js';
 import { readFileSync } from 'node:fs';
 
 /** A snapshot standing in for the real 2026/27 game, with the recorded squad in it. */
 const REAL_LIKE = [
-  { id: 1, name: 'Kinský', full: 'Antonín Kinský', position: GKP, team: 1 },
-  { id: 2, name: 'Dúbravka', full: 'Martin Dúbravka', position: GKP, team: 1 },
-  { id: 3, name: 'Gabriel', full: 'Gabriel Magalhães', position: DEF, team: 2 },
-  { id: 4, name: 'Mosquera', full: 'Cristhian Mosquera', position: DEF, team: 2 },
-  { id: 5, name: 'Maguire', full: 'Harry Maguire', position: DEF, team: 3 },
-  { id: 6, name: 'Egan', full: 'John Egan', position: DEF, team: 4 },
-  { id: 7, name: 'Thomas', full: 'Luis Thomas', position: DEF, team: 5 },
-  { id: 8, name: 'B.Fernandes', full: 'Bruno Fernandes', position: MID, team: 3 },
-  { id: 9, name: 'Le Fée', full: 'Enzo Le Fée', position: MID, team: 6 },
-  { id: 10, name: 'Groß', full: 'Pascal Groß', position: MID, team: 7 },
-  { id: 11, name: 'Mbeumo', full: 'Bryan Mbeumo', position: MID, team: 3 },
-  { id: 12, name: 'Slater', full: 'Regan Slater', position: MID, team: 4 },
-  { id: 13, name: 'Haaland', full: 'Erling Haaland', position: FWD, team: 8 },
-  { id: 14, name: 'João Pedro', full: 'João Pedro Junqueira de Jesus', position: FWD, team: 9 },
-  { id: 15, name: 'Igor Jesus', full: 'Igor Jesus Bombardeli', position: FWD, team: 10 },
+  { id: 1, name: 'Kinský', full: 'Antonín Kinský', position: GKP, team: 1, price: 45 },
+  { id: 2, name: 'Dúbravka', full: 'Martin Dúbravka', position: GKP, team: 1, price: 40 },
+  { id: 3, name: 'Gabriel', full: 'Gabriel Magalhães', position: DEF, team: 2, price: 80 },
+  { id: 4, name: 'Mosquera', full: 'Cristhian Mosquera', position: DEF, team: 2, price: 55 },
+  { id: 5, name: 'Maguire', full: 'Harry Maguire', position: DEF, team: 3, price: 50 },
+  { id: 6, name: 'Greaves', full: 'Jacob Greaves', position: DEF, team: 12, price: 40 },
+  { id: 7, name: 'Thomas', full: 'Kyle Thomas', position: DEF, team: 5, price: 40 },
+  { id: 8, name: 'B.Fernandes', full: 'Bruno Fernandes', position: MID, team: 3, price: 120 },
+  { id: 9, name: 'Mbeumo', full: 'Bryan Mbeumo', position: MID, team: 3, price: 80 },
+  { id: 10, name: 'Tzolis', full: 'Christos Tzolis', position: MID, team: 2, price: 65 },
+  { id: 11, name: 'Groß', full: 'Pascal Groß', position: MID, team: 7, price: 55 },
+  { id: 12, name: 'Sangaré', full: 'Ibrahim Sangaré', position: MID, team: 6, price: 55 },
+  { id: 13, name: 'Haaland', full: 'Erling Haaland', position: FWD, team: 8, price: 155 },
+  { id: 14, name: 'João Pedro', full: 'João Pedro Junqueira de Jesus', position: FWD, team: 9, price: 75 },
+  { id: 15, name: 'Kusi-Asare', full: 'Jonathan Kusi-Asare', position: FWD, team: 13, price: 45 },
   // Decoys that share a surname or a club.
-  { id: 16, name: 'Jesus', full: 'Gabriel Jesus', position: FWD, team: 2 },
-  { id: 17, name: 'Thomas', full: 'Thomas Partey', position: MID, team: 11 },
+  { id: 16, name: 'Jesus', full: 'Gabriel Jesus', position: FWD, team: 2, price: 70 },
+  { id: 17, name: 'Thomas', full: 'Thomas Partey', position: MID, team: 11, price: 50 },
 ];
 
 const SHORTS = { 1: 'TOT', 2: 'ARS', 3: 'MUN', 4: 'HUL', 5: 'COV', 6: 'SUN', 7: 'BHA',
-  8: 'MCI', 9: 'CHE', 10: 'NFO', 11: 'AVL' };
+  8: 'MCI', 9: 'CHE', 10: 'NFO', 11: 'AVL', 12: 'IPS', 13: 'FUL' };
 
 function realLikeSnapshot() {
   const snapshot = buildSnapshot({
-    playerSpecs: REAL_LIKE.map((p) => ({ id: p.id, name: p.name, position: p.position, team: p.team, price: 50 })),
+    playerSpecs: REAL_LIKE.map((p) => ({ id: p.id, name: p.name, position: p.position, team: p.team, price: p.price })),
   });
   // buildSnapshot only carries a single name field; restore full names and clubs.
   for (const spec of REAL_LIKE) {
@@ -78,10 +79,12 @@ test('every player in the recorded squad resolves', () => {
 
   const byName = Object.fromEntries(resolution.resolved.map((r) => [r.entry.name, r.player.id]));
   assert.equal(byName['Kinsky'], 1, 'accented web names still match');
-  assert.equal(byName['Groß'], 10);
+  assert.equal(byName['Groß'], 11);
   assert.equal(byName['João Pedro'], 14);
   assert.equal(byName['B.Fernandes'], 8);
-  assert.equal(byName['Igor Jesus'], 15, 'not Gabriel Jesus');
+  assert.equal(byName['Tzolis'], 10);
+  assert.equal(byName['Kusi-Asare'], 15, 'hyphenated names resolve');
+  assert.equal(byName['Sangaré'], 12);
   assert.equal(byName['Thomas'], 7, 'the Coventry defender, not Thomas Partey');
 });
 
@@ -106,8 +109,9 @@ test('an exact match wins over a surname match rather than going ambiguous', () 
 
 test('a name that genuinely could mean two players is reported, not guessed', () => {
   const snapshot = realLikeSnapshot();
-  // Two forwards with the same display name at the same club: nothing separates them.
+  // Two forwards with the same display name and club: nothing separates them.
   snapshot.player(16).teamId = 10;
+  snapshot.player(15).teamId = 10;
   snapshot.player(15).name = 'Jesus';
   const result = resolveEntry(snapshot, { name: 'Jesus', club: 'NFO', position: 'FWD' });
   assert.equal(result.status, 'ambiguous');
@@ -124,7 +128,7 @@ test('a club hint that no longer holds is ignored with a note', () => {
   const snapshot = realLikeSnapshot();
   const result = resolveEntry(snapshot, { name: 'Mbeumo', club: 'BRE', position: 'MID' });
   assert.equal(result.status, 'resolved');
-  assert.equal(result.player.id, 11);
+  assert.equal(result.player.id, 9);
   assert.match(result.note, /club hint was ignored/);
 });
 
@@ -141,16 +145,39 @@ test('the same player cannot fill two squad slots', () => {
   assert.equal(resolution.ok, false);
 });
 
-test('the recorded XI, bench order and armbands come back', () => {
+test('recorded prices become the purchase prices', () => {
   const snapshot = realLikeSnapshot();
   const squadFile = JSON.parse(readFileSync(new URL('../data/squad-2026-27.json', import.meta.url)));
-  const resolution = resolveSquad(snapshot, squadFile);
-  const selections = resolveSelections(resolution, squadFile);
 
-  assert.equal(selections.startingXi.length, 11);
-  assert.equal(selections.bench.length, 4);
-  assert.equal(selections.captain, 13, 'Haaland captains');
-  assert.equal(selections.viceCaptain, 14, 'João Pedro is vice');
-  assert.equal(selections.bench[0], 2, 'the reserve keeper is first on the bench');
-  assert.deepEqual(selections.bench, [2, 6, 12, 7], 'Dubravka, Egan, Slater, Thomas');
+  // Gabriel has risen £0.3m since he was bought.
+  snapshot.player(3).price = 83;
+
+  const resolution = resolveSquad(snapshot, squadFile);
+  assert.ok(resolution.ok);
+  assert.equal(resolution.purchasePrices[3], 80, 'what was paid, not what it costs now');
+  assert.deepEqual(resolution.priceMismatches.map((r) => r.entry.name), ['Gabriel']);
+
+  const state = initialSquad(emptyState(1), resolution.playerIds, snapshot,
+    { purchasePrices: resolution.purchasePrices });
+  const gabriel = state.picks.find((p) => p.playerId === 3);
+  assert.equal(gabriel.purchasePrice, 80);
+  // Half of the £0.3m rise is banked, rounded down: sells for £8.1m.
+  assert.equal(sellValue(gabriel, snapshot), 81);
+  assert.equal(state.bank, 0, 'the recorded squad spends the full £100.0m');
+});
+
+test('a recorded price separates two players a name and club cannot', () => {
+  const snapshot = realLikeSnapshot();
+  // Two Arsenal midfielders both displayed as "Thomas", at different prices.
+  snapshot.player(17).teamId = 2;
+  snapshot.player(17).name = 'Thomas';
+  snapshot.player(7).teamId = 2;
+  snapshot.player(7).position = MID;
+
+  const ambiguous = resolveEntry(snapshot, { name: 'Thomas', club: 'ARS', position: 'MID' });
+  assert.equal(ambiguous.status, 'ambiguous');
+
+  const byPrice = resolveEntry(snapshot, { name: 'Thomas', club: 'ARS', position: 'MID', price: 50 });
+  assert.equal(byPrice.status, 'resolved');
+  assert.equal(byPrice.player.id, 17);
 });

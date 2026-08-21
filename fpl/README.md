@@ -55,14 +55,18 @@ GW19; a fresh set arrives for GW20.
 
 ## Your recorded squad
 
-`fpl/data/squad-2026-27.json` holds the opening squad written down by name, club
-and position:
+`fpl/data/squad-2026-27.json` holds the opening squad written down by name, club,
+position and the price paid:
 
 ```
-GK   Kinsky, Dubravka                          (TOT, TOT)
-DEF  Gabriel, Mosquera, Maguire, Egan, Thomas  (ARS, ARS, MUN, HUL, COV)
-MID  B.Fernandes, Le Fée, Groß, Mbeumo, Slater (MUN, SUN, BHA, MUN, HUL)
-FWD  Haaland (C), João Pedro (V), Igor Jesus   (MCI, CHE, NFO)
+GK   Kinsky 4.5, Dubravka 4.0                              (TOT, TOT)
+DEF  Gabriel 8.0, Mosquera 5.5, Maguire 5.0,
+     Greaves 4.0, Thomas 4.0                               (ARS, ARS, MUN, IPS, COV)
+MID  B.Fernandes 12.0, Mbeumo 8.0, Tzolis 6.5,
+     Groß 5.5, Sangaré 5.5                                 (MUN, MUN, ARS, BHA, SUN)
+FWD  Haaland 15.5, João Pedro 7.5, Kusi-Asare 4.5          (MCI, CHE, FUL)
+
+£100.0m exactly, £0.0m in the bank. Arsenal and Man Utd both on the 3-player cap.
 ```
 
 Press **Load recorded squad** on the *Squad* tab and the names are resolved
@@ -73,12 +77,20 @@ punctuation and the German sharp s — `Kinsky` finds `Kinský`, `Groß` finds
 that genuinely could mean two players is reported as ambiguous rather than
 guessed at.
 
-The recorded starting XI and armbands are kept too, so the *Lineup* tab tells
-you only what to **change** rather than restating the whole team.
+If the file records a starting XI and armbands (`"start": true`, `"benchOrder"`,
+`"captain"`), those are kept too and the *Lineup* tab tells you only what to
+**change** rather than restating the whole team. Without them it simply
+recommends a fresh XI.
 
-Purchase prices default to the price at import. If a player's price has already
-moved since you bought them, correct it after importing so the selling-price
-maths stays right.
+The recorded price does two jobs. It separates two players a name and club
+cannot, and it becomes the **purchase price** — which is what governs the
+selling price, since FPL only hands back half of any rise. A player whose price
+has moved since you bought them is listed as `paid £8.0m, now £8.3m`, and the
+budget is judged on what you paid, so a squad that has risen in value is not
+retrospectively over budget.
+
+If an entry has no `price`, that player's purchase price falls back to the price
+at import.
 
 ## Getting real data
 
@@ -149,7 +161,7 @@ point for a decision, not the decision.
 node --test 'fpl/tests/*.test.mjs'
 ```
 
-60 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
+62 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
 squad legality, the XI optimiser, chip behaviour, and the transfer planner
 (including that it refuses unaffordable moves, respects the club limit, and takes
 a hit only when it pays), plus name resolution against accented and shared
