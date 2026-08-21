@@ -188,3 +188,92 @@ test('doing nothing always scores exactly zero net gain', () => {
       `${chipName}: holding should be the zero point, got ${hold.netGain}`);
   }
 });
+
+// ── Protected players ──────────────────────────────────────────────────────
+
+test('a protected player is never proposed for transfer out', () => {
+  // Squad midfielder 8 is dead weight, but protected; 9 is the next weakest.
+  const { snapshot, state } = setup([
+    { id: 90, name: 'Upgrade', position: MID, team: 20, price: 55, xG90: 0.8, xA90: 0.5, minutes: 900 },
+  ], {
+    squadOverrides: {
+      8: { xG90: 0, xA90: 0, price: 55 },
+      9: { xG90: 0.05, xA90: 0.05, price: 55 },
+    },
+  });
+
+  const open = planTransfers(state, snapshot, [90], OPTS);
+  assert.equal(open.recommendation.plan.transfersOut[0].id, 8, 'unprotected, the worst player goes');
+
+  const guarded = planTransfers({ ...state, protectedIds: [8] }, snapshot, [90], OPTS);
+  assert.equal(guarded.recommendation.plan.transfersOut[0].id, 9, 'protected, the next worst goes');
+  for (const plan of guarded.plans) {
+    assert.ok(!plan.transfersOut.some((p) => p.id === 8), 'no plan may sell a protected player');
+  }
+});
+
+test('protecting someone reports what it costs', () => {
+  const { snapshot, state } = setup([
+    { id: 90, name: 'Upgrade', position: MID, team: 20, price: 55, xG90: 0.8, xA90: 0.5, minutes: 900 },
+  ], {
+    squadOverrides: {
+      8: { xG90: 0, xA90: 0, price: 55 },
+      9: { xG90: 0.24, xA90: 0.19, price: 55 },
+    },
+  });
+
+  const guarded = planTransfers({ ...state, protectedIds: [8] }, snapshot, [90], OPTS);
+  assert.ok(guarded.protectionCost, 'the blocked better move should be reported');
+  assert.deepEqual(guarded.protectionCost.players.map((p) => p.id), [8]);
+  assert.ok(guarded.protectionCost.forgone > 0);
+  assert.ok(guarded.blockedPlans > 0);
+});
+
+test('nothing is reported when protection costs nothing', () => {
+  const { snapshot, state } = setup([
+    { id: 90, name: 'Upgrade', position: MID, team: 20, price: 55, xG90: 0.8, xA90: 0.5, minutes: 900 },
+  ], { squadOverrides: { 8: { xG90: 0, xA90: 0, price: 55 } } });
+
+  // Protecting the captain, who was never going to be sold anyway.
+  const guarded = planTransfers({ ...state, protectedIds: [13] }, snapshot, [90], OPTS);
+  assert.equal(guarded.protectionCost, null);
+  assert.equal(guarded.recommendation.plan.transfersOut[0].id, 8);
+});
+
+test('protecting every candidate exit leaves holding as the only option', () => {
+  const { snapshot, state } = setup([
+    { id: 90, name: 'Upgrade', position: MID, team: 20, price: 55, xG90: 0.9, xA90: 0.5, minutes: 900 },
+  ], { squadOverrides: { 8: { xG90: 0, xA90: 0, price: 55 } } });
+
+  // Every midfielder protected, so no incoming midfielder can be accommodated.
+  const guarded = planTransfers({ ...state, protectedIds: [8, 9, 10, 11, 12] }, snapshot, [90], OPTS);
+  assert.equal(guarded.recommendation.action, 'hold');
+  assert.ok(guarded.plans.every((p) => p.transfers === 0));
+  assert.ok(guarded.protectionCost, 'and it should say the protection is what blocked it');
+});
+
+test('protection applies on a wildcard too', () => {
+  const dead = { xG90: 0, xA90: 0, price: 55, minutes: 900 };
+  const candidates = [90, 91].map((id, i) => ({
+    id, name: `Big${id}`, position: MID, team: 20 - i, price: 55, xG90: 0.8, xA90: 0.5, minutes: 900,
+  }));
+  const { snapshot, state } = setup(candidates, { squadOverrides: { 8: dead, 9: dead } });
+
+  const wild = declareChip({ ...state, protectedIds: [8] }, 'wildcard', snapshot);
+  const result = planTransfers(wild, snapshot, [90, 91], OPTS);
+  for (const plan of result.plans) {
+    assert.ok(!plan.transfersOut.some((p) => p.id === 8), 'a wildcard does not override protection');
+  }
+});
+
+test('protecting a player you do not own has no effect on the planner', () => {
+  const { snapshot, state } = setup([
+    { id: 90, name: 'Upgrade', position: MID, team: 20, price: 55, xG90: 0.8, xA90: 0.5, minutes: 900 },
+  ], { squadOverrides: { 8: { xG90: 0, xA90: 0, price: 55 } } });
+
+  // Id 90 is the incoming candidate, not a squad member.
+  const result = planTransfers({ ...state, protectedIds: [90, 12345] }, snapshot, [90], OPTS);
+  assert.equal(result.recommendation.plan.transfersOut[0].id, 8, 'the normal move still stands');
+  assert.equal(result.protectionCost, null);
+  assert.equal(result.blockedPlans, 0);
+});

@@ -6,7 +6,9 @@
  * the fixture horizon with the XI re-optimised in every gameweek, subtracts
  * any points hits, and ranks the results.
  *
- * The candidate pool is deliberately closed: only the shortlist can come in.
+ * The candidate pool is deliberately closed: only the shortlist can come in,
+ * and protected players never go out. Plans blocked by protection are still
+ * scored, so the cost of protecting someone can be reported rather than hidden.
  */
 
 import { MAX_FREE_TRANSFERS, TRANSFER_HIT, CHIPS, POSITIONS, MAX_PER_CLUB, money } from './rules.js';
@@ -24,6 +26,8 @@ export const PLANNER_DEFAULTS = {
   decay: XP_DEFAULTS.horizonDecay,
   /** Ignore plans that gain less than this, and roll the transfer instead. */
   minimumGain: 0.5,
+  /** Squad players the planner may never sell, however good the move. */
+  protectedIds: [],
 };
 
 /**
@@ -63,6 +67,8 @@ export function planTransfers(state, snapshot, candidateIds, options = {}) {
     { ...options, overrides: state.overrides, teamGamesMap },
   );
 
+  const protectedIds = new Set(options.protectedIds ?? state.protectedIds ?? o.protectedIds);
+
   const maxTransfers = unlimited
     ? candidates.length
     : Math.min(candidates.length, freeTransfers + o.maxHits);
@@ -98,6 +104,7 @@ export function planTransfers(state, snapshot, candidateIds, options = {}) {
       plans.push({
         transfersIn: incoming,
         transfersOut: outgoing,
+        blockedBy: outgoing.filter((p) => protectedIds.has(p.id)),
         transfers: m,
         hits,
         bankAfter: check.bankAfter,
@@ -113,14 +120,31 @@ export function planTransfers(state, snapshot, candidateIds, options = {}) {
 
   plans.sort((a, b) => b.netGain - a.netGain || a.transfers - b.transfers);
 
-  const best = plans[0];
+  const allowed = plans.filter((plan) => plan.blockedBy.length === 0);
+  const blocked = plans.filter((plan) => plan.blockedBy.length > 0);
+  const best = allowed[0];
+
+  // If protecting someone ruled out a better move, say so rather than quietly
+  // presenting the second-best option as though it were the best available.
+  const bestBlocked = blocked[0];
+  const protectionCost = bestBlocked && bestBlocked.netGain > (best?.netGain ?? -Infinity)
+    ? {
+        plan: bestBlocked,
+        players: bestBlocked.blockedBy,
+        forgone: bestBlocked.netGain - (best?.netGain ?? 0),
+      }
+    : null;
+
   return {
     gameweeks,
     chip,
     freeTransfers,
+    protectedIds: [...protectedIds],
     baseline: { ...baseline, score: baselineScore },
-    plans: plans.slice(0, options.limit ?? 12),
-    recommendation: recommend(best, plans, o, { chip, freeTransfers, snapshot, gameweeks }),
+    plans: allowed.slice(0, options.limit ?? 12),
+    blockedPlans: blocked.length,
+    protectionCost,
+    recommendation: recommend(best, allowed, o, { chip, freeTransfers, snapshot, gameweeks }),
     consideredPlans: plans.length,
     projections,
   };

@@ -157,6 +157,8 @@ label.inline { display: inline-flex; align-items: center; gap: .4rem; font-size:
 }
 .chip button { border: 0; background: none; padding: 0 .35rem; color: var(--text-muted); line-height: 1; }
 .chip button:hover { color: var(--bad); }
+.chip.protected { border-color: var(--good); }
+
 .pill-row { display: flex; flex-wrap: wrap; gap: .4rem; }
 .pill {
   padding: .2rem .6rem; border-radius: 999px; font-size: .8rem;

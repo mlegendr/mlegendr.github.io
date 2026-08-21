@@ -26,6 +26,7 @@ export function emptyState(gameweek = 1) {
     freeHitRestore: null,          // picks/bank to restore after a Free Hit
     savedXi: null,                 // last confirmed starting XI, if any
     overrides: {},                 // playerId -> { minutes, availability, defconRate }
+    protectedIds: [],              // players the planner may never sell
     log: [],
   };
 }

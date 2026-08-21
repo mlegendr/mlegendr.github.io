@@ -54,12 +54,28 @@ async function init() {
   if (!loadState()) app.state.gameweek = app.snapshot.nextEvent ?? 1;
 
   describeDataSource(loaded);
+  warnIfSquadLooksWrong();
   wireTabs();
   wireSquadTab();
   wireLineupTab();
   wireTransfersTab();
   wireManageTab();
   renderAll();
+}
+
+/**
+ * A squad is stored as player ids, which only mean anything against the
+ * snapshot they were chosen from. Loading a different one - last season's, or
+ * the demo set - silently remaps every pick to a different player. An illegal
+ * shape is the tell-tale, so check for it and say so loudly.
+ */
+function warnIfSquadLooksWrong() {
+  if (!hasSquad()) return;
+  const check = validateSquad(app.state.picks.map((p) => p.playerId), app.snapshot);
+  if (check.valid) return;
+  banner(`Your saved squad does not fit this data: ${check.errors.join(' ')} `
+    + 'This usually means the snapshot loaded is not the one the squad was built from. '
+    + 'Load the right snapshot, or rebuild the squad.', true);
 }
 
 function describeDataSource({ source, raw }) {
@@ -174,14 +190,18 @@ function wireTabs() {
  * Player search that writes buttons into `results` and calls `onPick`.
  * Used by both the squad builder and the transfer shortlist.
  */
-function attachSearch({ input, positionSelect, results, onPick, exclude = () => false, label }) {
+function attachSearch({ input, positionSelect, results, onPick, exclude = () => false, label, pool = null }) {
   const run = () => {
     const query = input.value.trim();
     results.replaceChildren();
-    if (query.length < 2) return;
     const position = positionSelect.value ? Number(positionSelect.value) : null;
-    const found = app.snapshot.search(query, { position, limit: 30 })
-      .filter((p) => !exclude(p));
+
+    // A restricted pool (the squad) is short enough to list without a query.
+    const source = pool
+      ? pool().filter((p) => (position ? p.position === position : true)
+          && (query.length === 0 || app.snapshot.matches(p, query.toLowerCase())))
+      : (query.length < 2 ? [] : app.snapshot.search(query, { position, limit: 30 }));
+    const found = source.filter((p) => !exclude(p));
 
     for (const player of found.slice(0, 12)) {
       const button = document.createElement('button');
@@ -325,6 +345,9 @@ function statusCell(status, player) {
     news.className = 'news';
     news.textContent = player.news;
     wrap.append(news);
+  }
+  if ((app.state.protectedIds ?? []).includes(player.id)) {
+    wrap.append(pill('protected', 'ok'));
   }
   const override = app.state.overrides[player.id];
   if (override && Object.keys(override).length) {
@@ -749,6 +772,21 @@ function wireTransfersTab() {
     exclude: (p) => app.targets.includes(p.id) || app.state.picks.some((x) => x.playerId === p.id),
     onPick: (player) => { app.targets.push(player.id); renderTransfersTab(); },
   });
+  attachSearch({
+    input: $('#protect-search'),
+    positionSelect: $('#target-position'),
+    results: $('#protect-results'),
+    pool: () => (hasSquad() ? squadPlayers(app.state, app.snapshot) : []),
+    exclude: (p) => (app.state.protectedIds ?? []).includes(p.id),
+    onPick: (player) => {
+      app.state = {
+        ...app.state,
+        protectedIds: [...(app.state.protectedIds ?? []), player.id],
+      };
+      app.planResult = null;
+      renderAll();
+    },
+  });
   $('#plan-run').addEventListener('click', runPlanner);
 }
 
@@ -770,8 +808,48 @@ function renderTransfersTab() {
     chip.append(remove);
     list.append(chip);
   }
+  renderProtectedList();
   renderManualTransfer();
   if (app.planResult) renderPlans(app.planResult);
+}
+
+function renderProtectedList() {
+  const list = $('#protect-list');
+  list.replaceChildren();
+
+  // Protecting someone you no longer own is meaningless, so drop them. This
+  // also self-heals after a player is sold by hand, or if the state is opened
+  // against a snapshot whose ids differ.
+  if (hasSquad()) {
+    const owned = new Set(app.state.picks.map((p) => p.playerId));
+    const kept = (app.state.protectedIds ?? []).filter((id) => owned.has(id));
+    if (kept.length !== (app.state.protectedIds ?? []).length) {
+      app.state = { ...app.state, protectedIds: kept };
+      saveState(app.state);
+    }
+  }
+
+  const ids = app.state.protectedIds ?? [];
+  if (ids.length === 0) {
+    list.append(note('None protected — every squad player is available to the planner.'));
+    return;
+  }
+  for (const id of ids) {
+    const player = app.snapshot.player(id);
+    if (!player) continue;
+    const chip = document.createElement('span');
+    chip.className = 'chip protected';
+    chip.textContent = `${player.label} · ${POSITIONS[player.position].short}`;
+    const remove = document.createElement('button');
+    remove.type = 'button'; remove.textContent = '×'; remove.title = `Stop protecting ${player.name}`;
+    remove.addEventListener('click', () => {
+      app.state = { ...app.state, protectedIds: ids.filter((x) => x !== id) };
+      app.planResult = null;
+      renderAll();
+    });
+    chip.append(remove);
+    list.append(chip);
+  }
 }
 
 function runPlanner() {
@@ -782,6 +860,7 @@ function runPlanner() {
       maxHits: Number($('#opt-hits').value),
       freeTransferValue: Number($('#opt-ftvalue').value),
       overrides: app.state.overrides,
+      protectedIds: app.state.protectedIds ?? [],
     });
     app.planResult = result;
     renderPlans(result);
@@ -806,10 +885,24 @@ function renderPlans(result) {
   const context = document.createElement('p');
   context.className = 'small muted';
   const chipName = result.chip === 'none' ? 'no chip' : CHIPS[result.chip].name;
+  const protectedCount = result.protectedIds?.length ?? 0;
   context.textContent = `Gameweeks ${result.gameweeks[0]}–${result.gameweeks.at(-1)} · `
     + `${result.freeTransfers} free transfer${result.freeTransfers === 1 ? '' : 's'} · ${chipName} · `
-    + `${result.consideredPlans} legal combinations evaluated.`;
+    + `${result.consideredPlans} legal combinations evaluated`
+    + (protectedCount ? `, ${result.blockedPlans} ruled out by ${protectedCount} protected player${protectedCount === 1 ? '' : 's'}` : '')
+    + '.';
   box.append(context);
+
+  // Protection is a choice with a price; show the price.
+  if (result.protectionCost) {
+    const cost = document.createElement('p');
+    cost.className = 'small';
+    const names = result.protectionCost.players.map((p) => p.label).join(', ');
+    cost.innerHTML = `<strong>Protection cost:</strong> keeping ${escapeHtml(names)} rules out `
+      + `${escapeHtml(describe(result.protectionCost.plan))}, which would have been worth `
+      + `${result.protectionCost.forgone.toFixed(1)} points more.`;
+    box.append(cost);
+  }
 
   if (recommendation.action === 'transfer') {
     const apply = document.createElement('button');
@@ -907,7 +1000,8 @@ function renderManualTransfer() {
   for (const player of squadPlayers(app.state, app.snapshot).sort((a, b) => a.position - b.position)) {
     const option = document.createElement('option');
     option.value = player.id;
-    option.textContent = `${player.label} · ${POSITIONS[player.position].short} · sells ${money(player.sellPrice)}`;
+    const guarded = (app.state.protectedIds ?? []).includes(player.id) ? ' · protected' : '';
+    option.textContent = `${player.label} · ${POSITIONS[player.position].short} · sells ${money(player.sellPrice)}${guarded}`;
     outSelect.append(option);
   }
 
@@ -1017,6 +1111,7 @@ function wireManageTab() {
       describeDataSource({ source: app.source, raw });
       toast('Snapshot loaded.', 'good');
       renderAll();
+      warnIfSquadLooksWrong();
     } catch (err) { toast(err.message, 'error'); }
   });
   $('#team-news-apply').addEventListener('click', applyTeamNewsFromBox);

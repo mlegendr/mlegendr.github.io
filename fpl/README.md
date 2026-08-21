@@ -15,7 +15,8 @@ lives in `localStorage` and can be exported to JSON.
    given.
 2. **Plan transfers.** Add the players you're considering to the shortlist on the
    *Transfers* tab, then hit *Suggest transfer strategy*. Only shortlisted players
-   can come in. Every legal combination is scored over the horizon and ranked.
+   can come in, and any player on the **protected** list never goes out. Every
+   legal combination is scored over the horizon and ranked.
 3. **Record what you did.** Apply a suggested plan, or enter your moves by hand.
    Either way the squad, bank, selling prices and free-transfer count update.
 4. **Declare chips.** The tool **never suggests a chip**. You tell it which chip
@@ -34,9 +35,28 @@ lives in `localStorage` and can be exported to JSON.
   a marginal move is correctly rejected in favour of rolling.
 - **Legality** — 2/5/5/3 by position and a maximum of 3 players per club are
   enforced on every candidate plan.
+- **Protected players** — anyone you have marked as too important to lose is
+  excluded from every plan.
 
 Plans are ranked by net gain against doing nothing. Holding always scores exactly
 zero, so any positive number is a real improvement.
+
+### Protecting players
+
+Search your squad under **Protected players** to mark anyone you will not sell.
+The planner then never proposes a move that would part with them.
+
+Protection is a choice with a price, so the price is shown. If protecting
+someone rules out a better move, the recommendation says which move, who
+blocked it, and how many points it would have been worth:
+
+> **Protection cost:** keeping Groß (BHA) rules out Tzolis (ARS), Groß (BHA) →
+> Star1 (AVL), Star2 (AVL), which would have been worth 0.2 points more.
+
+Protection constrains what the planner *suggests*; the manual transfer entry
+will still sell anyone, marking protected players in its list. Protected players
+are marked in the squad table too, and anyone you no longer own drops off the
+list automatically.
 
 ## Chips
 
@@ -281,9 +301,9 @@ An honest ranking of what this model is still missing, worst first.
 node --test 'fpl/tests/*.test.mjs'
 ```
 
-77 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
+83 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
 squad legality, the XI optimiser, chip behaviour, the recent-role model, team-news
-parsing, and the transfer planner
+parsing, protected players, and the transfer planner
 (including that it refuses unaffordable moves, respects the club limit, and takes
 a hit only when it pays), plus name resolution against accented and shared
 surnames.
