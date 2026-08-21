@@ -4,8 +4,21 @@ A weekly decision tool for Fantasy Premier League. It optimises your starting XI
 plans transfers from a shortlist you supply, keeps your budget and free transfers
 honest, and picks your armbands.
 
-It runs entirely in the browser. Your squad never leaves your machine — state
-lives in `localStorage` and can be exported to JSON.
+It runs entirely in the browser. Your squad never leaves your machine.
+
+**What is remembered.** Your squad, purchase prices, bank, free transfers, chips
+used, gameweek, manual overrides and protected list are stored in the browser
+and survive closing the tab, quitting the browser and restarting the machine.
+Nothing needs to be re-entered week to week.
+
+**What clears it.** The storage belongs to one address in one browser, so a
+different port, a different browser, a private window, clearing site data, or
+the *Reset everything* button all mean an empty squad. It does not sync between
+machines. *Export squad* on the *Manage* tab writes a JSON copy that imports
+anywhere — worth doing after a gameweek you would not want to re-enter.
+
+The *Manage* tab shows when the state was last saved. If the browser refuses to
+store it at all, a banner says so rather than letting you work on and lose it.
 
 ## The weekly loop
 

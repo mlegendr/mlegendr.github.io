@@ -33,6 +33,8 @@ const app = {
   targets: [],        // shortlisted transfer targets
   lineup: null,
   planResult: null,
+  lastSaved: null,
+  saveWarned: false,
   pendingTransfers: [],
   recordedSelections: null,   // XI/armbands from a loaded squad file
   purchasePrices: null,       // what was actually paid, from a loaded squad file
@@ -92,7 +94,7 @@ function describeDataSource({ source, raw }) {
 // ── Shared rendering ───────────────────────────────────────────────────────
 
 function renderAll() {
-  saveState(app.state);
+  persist();
   renderMeta();
   renderSquadTab();
   renderLineupTab();
@@ -101,6 +103,38 @@ function renderAll() {
 }
 
 function hasSquad() { return app.state.picks.length === SQUAD_SIZE; }
+
+/**
+ * Save, and say so. A browser can refuse to store - a private window, storage
+ * disabled, a full quota - and a squad that is silently not being kept is the
+ * worst way to find that out, so a failure is reported rather than logged.
+ */
+function persist() {
+  const saved = saveState(app.state);
+  app.lastSaved = saved ? new Date() : null;
+
+  if (!saved && !app.saveWarned) {
+    app.saveWarned = true;
+    banner('This browser is refusing to store your squad, so it will be lost when you '
+      + 'close the tab. Use Export squad on the Manage tab to keep a copy. A private '
+      + 'window or blocked site data is the usual cause.', true);
+  }
+  updateSaveStatus();
+  return saved;
+}
+
+function updateSaveStatus() {
+  const el = $('#save-status');
+  if (!el) return;
+  if (app.lastSaved) {
+    el.textContent = `Saved in this browser at ${app.lastSaved.toLocaleTimeString()}.`;
+    el.className = 'small muted';
+  } else {
+    el.textContent = 'NOT saved — this browser is refusing to store data. Export a copy.';
+    el.className = 'small';
+    el.style.color = 'var(--bad)';
+  }
+}
 
 function renderMeta() {
   const { state, snapshot } = app;
@@ -825,7 +859,7 @@ function renderProtectedList() {
     const kept = (app.state.protectedIds ?? []).filter((id) => owned.has(id));
     if (kept.length !== (app.state.protectedIds ?? []).length) {
       app.state = { ...app.state, protectedIds: kept };
-      saveState(app.state);
+      persist();
     }
   }
 
@@ -1269,7 +1303,7 @@ function setOverride(playerId, key, value) {
   if (value == null) delete current[key]; else current[key] = value;
   app.state.overrides = { ...app.state.overrides, [playerId]: current };
   if (Object.keys(current).length === 0) delete app.state.overrides[playerId];
-  saveState(app.state);
+  persist();
   app.lineup = null;
   renderSquadTab();
 }
