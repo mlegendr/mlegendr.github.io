@@ -95,17 +95,24 @@ at import.
 ## Getting real data
 
 The official FPL API does not send CORS headers, so a web page cannot fetch it.
-Run the refresh script instead:
+Run the refresh script instead. The start script does both jobs — refresh the
+data, then serve the app:
+
+```sh
+./tools/start.sh                       # then open http://localhost:8123
+```
+
+If the refresh fails it still starts, and the banner on the page tells you which
+data you are looking at. `./tools/start.sh 9000` uses a different port and
+`--no-refresh` skips the fetch. The two steps by hand are:
 
 ```sh
 python3 tools/refresh_fpl_data.py      # writes fpl/data/snapshot.json
+python3 -m http.server -d fpl 8123
 ```
 
-Then serve the folder and open it:
-
-```sh
-npx http-server fpl -p 8123            # or: python3 -m http.server -d fpl 8123
-```
+On Windows, run those two directly (`py -3` instead of `python3`); the shell
+script needs Git Bash or WSL.
 
 The app tries live data first, falls back to `data/snapshot.json`, and finally to
 a **demo dataset of invented clubs and players** so the interface always works.
@@ -185,6 +192,7 @@ fpl/
   data/squad-2026-27.json  your recorded opening squad
   tests/            node --test suites
 tools/
+  start.sh                refresh data and serve the app
   refresh_fpl_data.py     fetches a live snapshot
   make_demo_snapshot.mjs  regenerates the demo dataset
 ```
