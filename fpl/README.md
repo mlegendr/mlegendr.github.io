@@ -210,6 +210,39 @@ distant projections are less certain.
 Projections are estimates, not predictions. Treat the rankings as a starting
 point for a decision, not the decision.
 
+### What would make it better
+
+An honest ranking of what this model is still missing, worst first.
+
+1. **It has never been backtested.** Nothing here has been scored against actual
+   results, so its accuracy is asserted rather than measured. The per-match
+   history the refresh now pulls is exactly the data needed to fix that, and
+   until it exists every improvement below is an argument rather than a result.
+2. **Fixture difficulty uses FDR alone.** The team attack and defence strength
+   ratings are loaded into the snapshot and never used. FDR is a coarse,
+   subjective, largely static 1-5 scale, and fixture is a first-order term in
+   every projection. Ratings fitted from actual results would be better.
+3. **No penalty or set-piece data.** The API publishes `penalties_order` and the
+   free-kick and corner orders; none is loaded. A penalty taker is worth a lot.
+   Worse, expected goals already include penalties, so a player who took one in
+   a small sample carries a permanently inflated xG per 90.
+4. **Expected goals and assists are not regressed.** A handful of matches of
+   finishing is treated as truth. They should shrink towards a positional prior
+   weighted by minutes played.
+5. **Form mixes units.** FPL's `form` is *points* per game, and multiplying an
+   expected-goals rate by a points-based ratio is not principled. Rolling
+   expected goals from recent matches would be, and needs only two more fields
+   in the history fetch.
+6. **Everything is an expected value.** A volatile forward and a steady
+   midfielder projecting the same total are not the same captain pick, and the
+   model cannot tell them apart. Correlation is ignored too: a goalkeeper and a
+   defender from the same club share one clean sheet, so that pairing carries
+   more risk than the sum of its parts suggests.
+7. **Bonus is a crude season rate.** Modelling the BPS components and the
+   probability of finishing in a match's top three would be better. This matters
+   more than usual in 2026/27, because the BPS itself changed - so anything
+   inferred across seasons is simply wrong.
+
 ## Tests
 
 ```sh
