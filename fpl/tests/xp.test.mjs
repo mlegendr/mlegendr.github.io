@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { buildSnapshot } from './fixtures.mjs';
 import { GKP, DEF, MID, FWD } from '../js/rules.js';
 import { expectedPoints, expectedFloorDiv, poissonAtLeast, expectedMinutes } from '../js/xp.js';
+import { loadSnapshot } from '../js/snapshot.js';
 
 const close = (a, b, tol = 1e-6) => assert.ok(Math.abs(a - b) < tol, `${a} !== ${b}`);
 
@@ -289,4 +290,48 @@ test('a double gameweek half played counts only the match still to come', () => 
   assert.equal(r.fixtures.length, 1);
   assert.equal(r.double, false);
   assert.ok(r.total > 0);
+});
+
+test('a gameweek in progress does not drag down start probabilities', () => {
+  // Five finished gameweeks of starts, then GW6 is under way and this player's
+  // fixture has not kicked off - so the API carries a zero-minute row for it.
+  const raw = {
+    elements: [{ id: 1, web_name: 'Nailed', first_name: 'N', second_name: 'Ailed',
+      element_type: MID, team: 1, now_cost: 60, status: 'a', minutes: 450, starts: 5 }],
+    teams: [{ id: 1, name: 'One', short_name: 'ONE' }, { id: 2, name: 'Two', short_name: 'TWO' }],
+    events: Array.from({ length: 6 }, (_, i) => ({
+      id: i + 1, finished: i < 5, is_current: i === 5, is_next: false })),
+    fixtures: Array.from({ length: 6 }, (_, i) => ({
+      id: i + 1, event: i + 1, team_h: 1, team_a: 2,
+      team_h_difficulty: 3, team_a_difficulty: 3, finished: i < 5, started: i < 5 })),
+    details: {
+      1: {
+        recent: [
+          ...Array.from({ length: 5 }, (_, i) => ({
+            round: i + 1, fixture: i + 1, minutes: 90, starts: 1, total_points: 6 })),
+          { round: 6, fixture: 6, minutes: 0, starts: 0, total_points: 0 },  // not played yet
+        ],
+      },
+    },
+  };
+
+  const snapshot = loadSnapshot(raw);
+  const player = snapshot.player(1);
+
+  assert.equal(player.recent.length, 5, 'the unplayed gameweek is not history');
+  assert.ok(player.recent.every((m) => m.started));
+
+  const p = startProbability(snapshot, player, { teamGames: 5 });
+  assert.ok(p > 0.85, `a nailed starter should stay nailed mid-gameweek, got ${p.toFixed(2)}`);
+});
+
+test('without the filter that same player would look dropped', () => {
+  // The same six rows, but with no event data to say which are finished: the
+  // zero-minute row is the most recent and carries the most weight.
+  const player = { recent: [
+    ...Array.from({ length: 5 }, (_, i) => ({ round: i + 1, minutes: 90, started: true })),
+    { round: 6, minutes: 0, started: false },
+  ] };
+  assert.ok(recentRole(player).startProbability < 0.75,
+    'which is exactly the distortion the filter exists to prevent');
 });

@@ -37,6 +37,7 @@ ELEMENT_FIELDS = [
     "id", "web_name", "first_name", "second_name", "element_type", "team",
     "now_cost", "status", "chance_of_playing_next_round", "news",
     "minutes", "starts", "form", "points_per_game", "total_points", "ep_next",
+    "event_points",
     "goals_scored", "assists", "clean_sheets", "goals_conceded", "saves",
     "bonus", "bps", "yellow_cards", "red_cards", "own_goals",
     "penalties_saved", "penalties_missed",
@@ -52,7 +53,7 @@ TEAM_FIELDS = [
 EVENT_FIELDS = ["id", "name", "deadline_time", "is_current", "is_next", "finished"]
 FIXTURE_FIELDS = [
     "id", "event", "team_h", "team_a", "team_h_difficulty", "team_a_difficulty",
-    "finished", "kickoff_time",
+    "finished", "started", "kickoff_time",
 ]
 
 
@@ -69,7 +70,8 @@ def pick(row: dict, fields: list[str]) -> dict:
 # Per-match fields kept from element-summary history. `starts` is what makes an
 # empirical start probability possible; minutes alone cannot tell a 70-minute
 # start from a 70-minute substitute appearance.
-HISTORY_FIELDS = ["round", "minutes", "starts", "total_points", "opponent_team", "was_home", "value"]
+HISTORY_FIELDS = ["round", "fixture", "minutes", "starts", "total_points",
+                  "opponent_team", "was_home", "value"]
 
 RECENT_MATCHES = 8
 

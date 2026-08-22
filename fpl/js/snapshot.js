@@ -44,7 +44,8 @@ export function loadSnapshot(raw) {
     });
   }
 
-  const events = Array.isArray(raw.events) ? raw.events : [];
+  const events = (Array.isArray(raw.events) ? raw.events : [])
+    .map((e) => ({ ...e, finished: !!e.finished }));
   const currentEvent = events.find((e) => e.is_current)?.id ?? null;
   const nextEvent = events.find((e) => e.is_next)?.id
     ?? (currentEvent ? currentEvent + 1 : (events[0]?.id ?? 1));
@@ -70,6 +71,7 @@ export function loadSnapshot(raw) {
       pointsPerGame: num(e.points_per_game),
       totalPoints: num(e.total_points),
       epNext: e.ep_next == null ? null : num(e.ep_next),
+      eventPoints: e.event_points == null ? null : num(e.event_points),
       goals: num(e.goals_scored),
       assists: num(e.assists),
       cleanSheets: num(e.clean_sheets),
@@ -102,22 +104,6 @@ export function loadSnapshot(raw) {
     p.recent = [];
   }
 
-  // Per-match history, when the refresh fetched it. This is what separates a
-  // regular starter from a squad player with the same season minutes.
-  for (const [id, detail] of Object.entries(raw.details ?? {})) {
-    const player = players.get(Number(id));
-    if (!player) continue;
-    player.recent = (detail.recent ?? []).map((h) => ({
-      round: h.round,
-      minutes: num(h.minutes),
-      // `starts` arrived with the 2024/25 API. Without it, treat an hour on the
-      // pitch as a start - imperfect, but far better than ignoring the match.
-      started: h.starts != null ? num(h.starts) > 0 : num(h.minutes) >= 60,
-      points: num(h.total_points),
-    }));
-    player.historyPast = detail.history_past ?? [];
-  }
-
   const fixtures = (raw.fixtures ?? []).map((f) => ({
     id: f.id,
     event: f.event,
@@ -126,8 +112,39 @@ export function loadSnapshot(raw) {
     homeDifficulty: num(f.team_h_difficulty, 3),
     awayDifficulty: num(f.team_a_difficulty, 3),
     finished: !!f.finished,
+    started: f.started == null ? !!f.finished : !!f.started,
     kickoff: f.kickoff_time ?? null,
   }));
+
+  // A match that has not finished tells you nothing about a player's role. In
+  // particular the gameweek in progress must not count: its rows read as zero
+  // minutes for anyone whose fixture is still to come, and being the most
+  // recent, they would carry the most weight of all.
+  const finishedFixtures = new Set(fixtures.filter((f) => f.finished).map((f) => f.id));
+  const finishedRounds = new Set(events.filter((e) => e.finished).map((e) => e.id));
+  const roundIsFinished = (round) => finishedRounds.size > 0
+    ? finishedRounds.has(round)
+    : true;   // no event data: assume history is historical
+
+  // Per-match history, when the refresh fetched it. This is what separates a
+  // regular starter from a squad player with the same season minutes.
+  for (const [id, detail] of Object.entries(raw.details ?? {})) {
+    const player = players.get(Number(id));
+    if (!player) continue;
+    player.recent = (detail.recent ?? [])
+      .filter((h) => (h.fixture != null && finishedFixtures.size > 0)
+        ? finishedFixtures.has(h.fixture)
+        : roundIsFinished(h.round))
+      .map((h) => ({
+        round: h.round,
+        minutes: num(h.minutes),
+        // `starts` arrived with the 2024/25 API. Without it, treat an hour on the
+        // pitch as a start - imperfect, but far better than ignoring the match.
+        started: h.starts != null ? num(h.starts) > 0 : num(h.minutes) >= 60,
+        points: num(h.total_points),
+      }));
+    player.historyPast = detail.history_past ?? [];
+  }
 
   return new Snapshot({ players, teams, fixtures, events, currentEvent, nextEvent, deadlines,
     generatedAt: raw.generated_at ?? raw.generatedAt ?? null });

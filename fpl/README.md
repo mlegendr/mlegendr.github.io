@@ -220,8 +220,9 @@ percentage. The news text is shown next to him in the squad table.
 
 **Who is actually starting is inferred from recent selections.** The refresh
 pulls per-match history for the most-selected players, and the model weights the
-last six matches towards the present. That separates a regular starter from
-someone with identical season minutes who has been benched since August:
+last six **completed** matches towards the present. That separates a regular
+starter from someone with identical season minutes who has been benched since
+August:
 
 | Recent matches | Start probability | Expected minutes |
 | --- | --- | --- |
@@ -229,6 +230,23 @@ someone with identical season minutes who has been benched since August:
 | Benched 3, then started 3 | 70% | 66 |
 | Started 3, then benched 3 | 30% | 34 |
 | Benched all 6 | 0% | 10 |
+
+Only finished matches count. The gameweek in progress reads as zero minutes for
+anyone whose fixture is still to come, and being the most recent it would carry
+the most weight of all — so a nailed starter would look dropped every Saturday
+morning. A finished match with no minutes *is* evidence and does count.
+
+### Watching a gameweek in progress
+
+The squad table carries a **GW*n*** column with points scored so far. A player
+whose match has not kicked off shows a dash rather than a zero: he has not
+failed to score, he has not played. A match under way is marked, and the squad
+total sits above the table with how many players are still to come.
+
+Once a deadline passes the app moves on to planning the next gameweek while the
+current one is still being played, so the live figures live on the *Squad* tab
+and cover all fifteen. The points your picked eleven actually scored depend on
+the side you submitted, which the app does not keep once it moves on.
 
 **Predicted lineups have to be pasted in, and here is why.** Confirmed lineups
 are published about an hour before kickoff — but the FPL deadline is 90 minutes
@@ -343,7 +361,7 @@ An honest ranking of what this model is still missing, worst first.
 node --test 'fpl/tests/*.test.mjs'
 ```
 
-92 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
+94 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
 squad legality, the XI optimiser, chip behaviour, the recent-role model, team-news
 parsing, protected players, and the transfer planner
 (including that it refuses unaffordable moves, respects the club limit, and takes

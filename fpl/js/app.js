@@ -362,8 +362,14 @@ function renderSquadTab() {
   if (building) { renderBuilder(); return; }
 
   renderChipSelect();
+  const liveGameweek = app.snapshot.currentEvent;
+  $('#live-header').textContent = liveGameweek ? `GW${liveGameweek}` : 'Live';
+  $('#live-header').title = liveGameweek
+    ? `Points scored so far in Gameweek ${liveGameweek}.`
+    : 'Points in the gameweek being played.';
 
   const players = squadPlayers(app.state, app.snapshot);
+  renderLiveSummary(players);
   const { gameweeks, projections } = project(players, 6);
   const teamGames = teamGamesPlayed(app.snapshot);
   const body = $('#squad-table tbody');
@@ -389,6 +395,7 @@ function renderSquadTab() {
       td(money(player.price), 'num'),
       td(money(player.sellPrice), 'num'),
       tdNode(fixtureStrip(player.teamId, gameweeks)),
+      tdNode(liveCell(player)),
       tdNode(startCell(pStart, player)),
       td((projection.byGameweek.get(gameweeks[0]) ?? 0).toFixed(1), 'num'),
       td(projection.total.toFixed(1), 'num'),
@@ -398,14 +405,86 @@ function renderSquadTab() {
   }
 }
 
+/**
+ * The gameweek being played, across the whole squad. This belongs to the squad
+ * rather than to any lineup: once the deadline passes the app moves on to
+ * planning the next gameweek, while the current one is still being played.
+ */
+function renderLiveSummary(players) {
+  const box = $('#live-summary');
+  box.replaceChildren();
+  const gameweek = app.snapshot.currentEvent;
+  if (!gameweek || players.some((p) => p.eventPoints == null)) return;
+
+  const states = players.map((p) => fixtureState(p.teamId, gameweek));
+  if (states.every((s) => s === 'upcoming' || s === 'none')) return;   // not started yet
+
+  const total = players.reduce((a, p) => a + (p.eventPoints ?? 0), 0);
+  const toPlay = states.filter((s) => s === 'upcoming').length;
+  const live = states.filter((s) => s === 'live').length;
+
+  box.append(stat(`Gameweek ${gameweek} so far`, `${total} pts`));
+  if (live) box.append(stat('In progress', `${live} player${live === 1 ? '' : 's'}`));
+  if (toPlay) box.append(stat('Yet to play', `${toPlay} player${toPlay === 1 ? '' : 's'}`));
+  box.append(note('Across all 15. Points for your picked eleven depend on the side you '
+    + 'submitted for that gameweek, which the app does not store once it moves on.'));
+}
+
+/**
+ * How a player's fixtures in a gameweek stand right now.
+ * @returns {'none'|'upcoming'|'live'|'played'}
+ */
+function fixtureState(teamId, gameweek) {
+  const fixtures = app.snapshot.teamFixtures(teamId, gameweek);
+  if (fixtures.length === 0) return 'none';
+  if (fixtures.every((f) => f.finished)) return 'played';
+  if (fixtures.some((f) => f.started)) return 'live';
+  return 'upcoming';
+}
+
+/**
+ * Points scored so far in the gameweek being played. A player whose match has
+ * not kicked off shows a dash, not a zero - he has not failed to score, he has
+ * not played.
+ */
+function liveCell(player) {
+  const gameweek = app.snapshot.currentEvent;
+  const span = document.createElement('span');
+  if (!gameweek || player.eventPoints == null) {
+    span.textContent = '—';
+    span.title = 'No live data in this snapshot. Re-run the refresh script.';
+    span.className = 'muted';
+    return span;
+  }
+
+  const state = fixtureState(player.teamId, gameweek);
+  if (state === 'upcoming' || state === 'none') {
+    span.textContent = '—';
+    span.className = 'muted';
+    span.title = state === 'none'
+      ? `No fixture in Gameweek ${gameweek}.`
+      : `Gameweek ${gameweek} fixture has not kicked off yet.`;
+    return span;
+  }
+
+  span.textContent = state === 'live' ? `${player.eventPoints} ●` : `${player.eventPoints}`;
+  span.title = state === 'live'
+    ? `Gameweek ${gameweek}: ${player.eventPoints} points so far, match in progress.`
+    : `Gameweek ${gameweek}: ${player.eventPoints} points, match finished.`;
+  if (state === 'live') span.className = 'live';
+  return span;
+}
+
 /** Start probability, with what it was inferred from. */
 function startCell(probability, player) {
   const span = document.createElement('span');
   span.textContent = `${Math.round(probability * 100)}%`;
   const role = recentRole(player);
   span.title = role
-    ? `From the last ${role.matches} matches: started about ${Math.round(role.startProbability * 100)}% of them.`
-    : 'No per-match history in this snapshot — estimated from season minutes. '
+    ? `From the last ${role.matches} completed match${role.matches === 1 ? '' : 'es'}: `
+      + `started about ${Math.round(role.startProbability * 100)}% of them. `
+      + 'A gameweek in progress is not counted.'
+    : 'No completed match history in this snapshot — estimated from season minutes. '
       + 'Re-run the refresh script to pull match history.';
   if (probability < 0.6) span.className = 'news';
   return span;
@@ -621,6 +700,7 @@ function runLineup() {
     stat('Starting XI', `${lineup.startingPoints.toFixed(1)} pts`),
     stat(CHIPS[chip]?.benchCounts ? 'Bench (counting)' : 'Bench (reserve)', `${lineup.benchPoints.toFixed(1)} pts`),
     stat('Armband', `+${lineup.captainBonus.toFixed(1)} pts`),
+    ...liveStat(lineup),
   );
 
   // Pitch: one row per position line.
@@ -701,6 +781,29 @@ function renderLineupChanges(lineup) {
     box.append(note(`Captaincy: the model prefers ${lineup.captain.label} `
       + `(${lineup.captain.points.toFixed(1)}) over your current pick ${swap?.label ?? savedCaptain}.`));
   }
+}
+
+/**
+ * Points the picked side has scored so far, when the gameweek is under way.
+ * This is the side as picked: auto-substitutions are not applied, since they
+ * are only settled once every match has finished.
+ */
+function liveStat(lineup) {
+  const gameweek = app.snapshot.currentEvent;
+  if (!gameweek || gameweek !== app.state.gameweek) return [];
+
+  const counted = [...lineup.xi, ...(CHIPS[lineup.chip]?.benchCounts ? lineup.bench : [])];
+  if (counted.some((p) => p.eventPoints == null)) return [];
+
+  const anyStarted = counted.some((p) => fixtureState(p.teamId, gameweek) !== 'upcoming');
+  if (!anyStarted) return [];
+
+  const base = counted.reduce((a, p) => a + (p.eventPoints ?? 0), 0);
+  const captainExtra = (lineup.captain?.eventPoints ?? 0) * (captainMultiplier(lineup.chip) - 1);
+  const waiting = counted.filter((p) => fixtureState(p.teamId, gameweek) === 'upcoming').length;
+
+  return [stat(`GW${gameweek} so far`,
+    `${base + captainExtra} pts${waiting ? ` · ${waiting} to play` : ''}`)];
 }
 
 function playerCard(player, lineup) {
