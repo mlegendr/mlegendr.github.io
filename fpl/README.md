@@ -187,6 +187,29 @@ by hand from the *Manage* tab.
 Re-run the refresh before each deadline — prices, form, injuries and `ep_next`
 all move during the week.
 
+### What a refresh updates
+
+Everything the projections read: current prices, minutes, expected goals and
+assists, form, bonus rates, defensive contributions, injury news and chances of
+playing, `ep_next`, fixtures and their difficulty, and the per-match history
+behind start probabilities. Selling prices follow automatically, since they are
+computed from what you paid against the current price.
+
+Nothing polls in the background — a refresh happens when you run it.
+
+What a refresh **cannot** decide is that you have finished a gameweek, because
+advancing has consequences: a free transfer accrues, a Free Hit squad reverts, a
+chip is spent. So the app keeps its own gameweek until you advance. If the data
+has moved on and the app has not, a banner says so and offers to catch up:
+
+> The next deadline is Gameweek 2, but this app is still on Gameweek 1.
+> Projections and fixtures will be for a gameweek already played until you
+> advance. **[Advance to Gameweek 2]**
+
+Matches that have already been played contribute nothing to a projection, so a
+stale gameweek shows zero rather than inventing points for a game you have
+already watched.
+
 ## Injuries, minutes and predicted lineups
 
 **Injuries and availability come from FPL itself.** The `status`,
@@ -320,7 +343,7 @@ An honest ranking of what this model is still missing, worst first.
 node --test 'fpl/tests/*.test.mjs'
 ```
 
-90 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
+92 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
 squad legality, the XI optimiser, chip behaviour, the recent-role model, team-news
 parsing, protected players, and the transfer planner
 (including that it refuses unaffordable moves, respects the club limit, and takes

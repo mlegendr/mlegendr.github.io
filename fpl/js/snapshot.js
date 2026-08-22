@@ -153,8 +153,8 @@ export class Snapshot {
     const out = [];
     for (const f of this.fixtures) {
       if (f.event !== event) continue;
-      if (f.home === teamId) out.push({ opponent: f.away, home: true, difficulty: f.homeDifficulty, kickoff: f.kickoff, fixtureId: f.id });
-      else if (f.away === teamId) out.push({ opponent: f.home, home: false, difficulty: f.awayDifficulty, kickoff: f.kickoff, fixtureId: f.id });
+      if (f.home === teamId) out.push({ opponent: f.away, home: true, difficulty: f.homeDifficulty, kickoff: f.kickoff, fixtureId: f.id, finished: f.finished });
+      else if (f.away === teamId) out.push({ opponent: f.home, home: false, difficulty: f.awayDifficulty, kickoff: f.kickoff, fixtureId: f.id, finished: f.finished });
     }
     return out;
   }

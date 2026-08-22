@@ -57,6 +57,7 @@ async function init() {
 
   describeDataSource(loaded);
   warnIfSquadLooksWrong();
+  checkGameweekDrift();
   wireTabs();
   wireSquadTab();
   wireLineupTab();
@@ -78,6 +79,32 @@ function warnIfSquadLooksWrong() {
   banner(`Your saved squad does not fit this data: ${check.errors.join(' ')} `
     + 'This usually means the snapshot loaded is not the one the squad was built from. '
     + 'Load the right snapshot, or rebuild the squad.', true);
+}
+
+/**
+ * Refreshing the data brings in new prices, stats and fixtures, but it cannot
+ * decide that you have finished a gameweek - advancing has consequences
+ * (a free transfer, a Free Hit reverting, a chip spent). So when the data has
+ * moved on and the app has not, say so and offer to catch up.
+ */
+function checkGameweekDrift() {
+  const next = app.snapshot.nextEvent;
+  if (!next || !hasSquad() || next <= app.state.gameweek) return;
+
+  const behind = next - app.state.gameweek;
+  banner(`The next deadline is Gameweek ${next}, but this app is still on Gameweek `
+    + `${app.state.gameweek}. Projections and fixtures will be for a gameweek already played `
+    + 'until you advance.', true, {
+    label: behind === 1 ? `Advance to Gameweek ${next}` : `Advance ${behind} gameweeks`,
+    onClick: () => {
+      while (app.state.gameweek < next) app.state = advanceGameweek(app.state);
+      app.lineup = null; app.planResult = null; app.pendingTransfers = [];
+      $('#databanner').hidden = true;
+      toast(`Caught up to Gameweek ${app.state.gameweek}. `
+        + `${app.state.freeTransfers} free transfer(s).`, 'good');
+      renderAll();
+    },
+  });
 }
 
 function describeDataSource({ source, raw }) {
@@ -201,9 +228,18 @@ function statusLabel(player) {
   return { text: `${Math.round(availability * 100)}% doubt`, className: 'warn' };
 }
 
-function banner(message, isError = false) {
+function banner(message, isError = false, action = null) {
   const el = $('#databanner');
-  el.textContent = message;
+  el.replaceChildren();
+  el.append(document.createTextNode(message));
+  if (action) {
+    const button = document.createElement('button');
+    button.className = 'tiny';
+    button.style.marginLeft = '.6rem';
+    button.textContent = action.label;
+    button.addEventListener('click', action.onClick);
+    el.append(button);
+  }
   el.className = `banner${isError ? ' error' : ''}`;
   el.hidden = false;
 }
@@ -1157,6 +1193,7 @@ function wireManageTab() {
       toast('Snapshot loaded.', 'good');
       renderAll();
       warnIfSquadLooksWrong();
+      checkGameweekDrift();
     } catch (err) { toast(err.message, 'error'); }
   });
   $('#team-news-apply').addEventListener('click', applyTeamNewsFromBox);

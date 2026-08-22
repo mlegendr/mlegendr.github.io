@@ -363,7 +363,9 @@ export function expectedPoints(snapshot, player, gameweek, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
   const override = o.overrides?.get?.(player.id) ?? o.overrides?.[player.id] ?? null;
   const teamGames = o.teamGamesMap?.get(player.teamId);
-  const fixtures = snapshot.teamFixtures(player.teamId, gameweek);
+  // A finished match cannot earn anything from here, so it contributes nothing
+  // to a forward-looking projection.
+  const fixtures = snapshot.teamFixtures(player.teamId, gameweek).filter((f) => !f.finished);
 
   const perFixture = fixtures.map((f) =>
     fixtureExpectedPoints(snapshot, player, f, { ...o, override, teamGames }));

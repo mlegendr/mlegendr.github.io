@@ -262,3 +262,31 @@ test('a clean sheet is a starter event, not an average-minutes one', () => {
   assert.ok(cs(cameos) < cs(nailed) * 0.2,
     'a 20-minute substitute rarely reaches the 60 minutes a clean sheet needs');
 });
+
+test('a finished fixture contributes nothing to a forward-looking projection', () => {
+  const snapshot = buildSnapshot({
+    playerSpecs: [{ id: 1, position: FWD, team: 1, xG90: 0.7, xA90: 0.3, minutes: 900 }],
+    fixtureSpecs: [
+      { id: 1, event: 1, team_h: 1, team_a: 2, team_h_difficulty: 3, team_a_difficulty: 3, finished: true },
+      { id: 2, event: 2, team_h: 1, team_a: 3, team_h_difficulty: 3, team_a_difficulty: 3, finished: false },
+    ],
+  });
+  const played = expectedPoints(snapshot, snapshot.player(1), 1, { epBlend: 0 });
+  assert.equal(played.total, 0, 'the match has already happened');
+  assert.ok(played.blank);
+  assert.ok(expectedPoints(snapshot, snapshot.player(1), 2, { epBlend: 0 }).total > 0);
+});
+
+test('a double gameweek half played counts only the match still to come', () => {
+  const snapshot = buildSnapshot({
+    playerSpecs: [{ id: 1, position: FWD, team: 1, xG90: 0.7, xA90: 0.3, minutes: 900 }],
+    fixtureSpecs: [
+      { id: 1, event: 5, team_h: 1, team_a: 2, team_h_difficulty: 3, team_a_difficulty: 3, finished: true },
+      { id: 2, event: 5, team_h: 3, team_a: 1, team_h_difficulty: 3, team_a_difficulty: 3, finished: false },
+    ],
+  });
+  const r = expectedPoints(snapshot, snapshot.player(1), 5, { epBlend: 0 });
+  assert.equal(r.fixtures.length, 1);
+  assert.equal(r.double, false);
+  assert.ok(r.total > 0);
+});
