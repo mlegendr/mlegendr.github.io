@@ -131,18 +131,23 @@ export function loadSnapshot(raw) {
   for (const [id, detail] of Object.entries(raw.details ?? {})) {
     const player = players.get(Number(id));
     if (!player) continue;
-    player.recent = (detail.recent ?? [])
-      .filter((h) => (h.fixture != null && finishedFixtures.size > 0)
-        ? finishedFixtures.has(h.fixture)
-        : roundIsFinished(h.round))
-      .map((h) => ({
-        round: h.round,
-        minutes: num(h.minutes),
-        // `starts` arrived with the 2024/25 API. Without it, treat an hour on the
-        // pitch as a start - imperfect, but far better than ignoring the match.
-        started: h.starts != null ? num(h.starts) > 0 : num(h.minutes) >= 60,
-        points: num(h.total_points),
-      }));
+    const rows = (detail.recent ?? []).map((h) => ({
+      round: h.round,
+      fixture: h.fixture ?? null,
+      minutes: num(h.minutes),
+      // `starts` arrived with the 2024/25 API. Without it, treat an hour on the
+      // pitch as a start - imperfect, but far better than ignoring the match.
+      started: h.starts != null ? num(h.starts) > 0 : num(h.minutes) >= 60,
+      points: num(h.total_points),
+    }));
+    const isFinished = (row) => (row.fixture != null && finishedFixtures.size > 0)
+      ? finishedFixtures.has(row.fixture)
+      : roundIsFinished(row.round);
+
+    player.recent = rows.filter(isFinished);
+    // Rows for a gameweek still in progress are kept separately: useless as
+    // evidence of a player's role, but they carry his live minutes.
+    player.liveRows = rows.filter((r) => !isFinished(r));
     player.historyPast = detail.history_past ?? [];
   }
 
@@ -154,6 +159,33 @@ export class Snapshot {
   constructor(parts) { Object.assign(this, parts); }
 
   player(id) { return this.players.get(id); }
+
+  /**
+   * What a player has done in a gameweek so far.
+   * `settled` means every fixture of his is finished, so the outcome is final -
+   * which is what decides whether an automatic substitution applies.
+   */
+  liveStatus(player, gameweek) {
+    const fixtures = this.teamFixtures(player.teamId, gameweek);
+    const settled = fixtures.length > 0 && fixtures.every((f) => f.finished);
+    const started = fixtures.some((f) => f.started);
+
+    const rows = [...(player.liveRows ?? []), ...(player.recent ?? [])]
+      .filter((r) => r.round === gameweek);
+    const minutes = rows.reduce((a, r) => a + r.minutes, 0);
+
+    return {
+      fixtures: fixtures.length,
+      blank: fixtures.length === 0,
+      started,
+      settled,
+      minutes,
+      // Points come from the element itself, which is what FPL updates live.
+      points: player.eventPoints ?? 0,
+      // With no history row at all, fall back to whether he scored anything.
+      played: rows.length > 0 ? minutes > 0 : (player.eventPoints ?? 0) !== 0,
+    };
+  }
   team(id) { return this.teams.get(id); }
 
   /** Availability in [0,1]: explicit chance-of-playing wins over status code. */
@@ -170,8 +202,9 @@ export class Snapshot {
     const out = [];
     for (const f of this.fixtures) {
       if (f.event !== event) continue;
-      if (f.home === teamId) out.push({ opponent: f.away, home: true, difficulty: f.homeDifficulty, kickoff: f.kickoff, fixtureId: f.id, finished: f.finished });
-      else if (f.away === teamId) out.push({ opponent: f.home, home: false, difficulty: f.awayDifficulty, kickoff: f.kickoff, fixtureId: f.id, finished: f.finished });
+      const common = { kickoff: f.kickoff, fixtureId: f.id, finished: f.finished, started: f.started };
+      if (f.home === teamId) out.push({ opponent: f.away, home: true, difficulty: f.homeDifficulty, ...common });
+      else if (f.away === teamId) out.push({ opponent: f.home, home: false, difficulty: f.awayDifficulty, ...common });
     }
     return out;
   }

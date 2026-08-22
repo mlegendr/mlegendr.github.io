@@ -6,7 +6,9 @@
  * and there are only eight legal formations to compare.
  */
 
-import { GKP, DEF, MID, FWD, FORMATIONS, POSITIONS, captainMultiplier, CHIPS } from './rules.js';
+import {
+  GKP, DEF, MID, FWD, FORMATIONS, POSITIONS, STARTING_XI, captainMultiplier, CHIPS,
+} from './rules.js';
 
 const byPoints = (a, b) => b.points - a.points;
 
@@ -130,4 +132,63 @@ export function projectHorizon(squadPlayers, projections, gameweeks, { chip = 'n
     perGameweek.push({ gameweek: gw, lineup, weighted: lineup.total * weight });
   });
   return { total, perGameweek };
+}
+
+/**
+ * Is this a legal eleven? Used to validate a side the manager has picked by
+ * hand, rather than one the optimiser built.
+ * @returns {{valid:boolean, errors:string[], formation:string|null}}
+ */
+export function validateXi(xi) {
+  const errors = [];
+  if (xi.length !== STARTING_XI) errors.push(`A starting eleven needs ${STARTING_XI} players, this has ${xi.length}.`);
+
+  const counts = { [GKP]: 0, [DEF]: 0, [MID]: 0, [FWD]: 0 };
+  for (const p of xi) counts[p.position] = (counts[p.position] ?? 0) + 1;
+
+  if (counts[GKP] !== 1) errors.push(`Exactly one goalkeeper must start, this has ${counts[GKP]}.`);
+  for (const pos of [DEF, MID, FWD]) {
+    const meta = POSITIONS[pos];
+    if (counts[pos] < meta.min) errors.push(`At least ${meta.min} ${meta.short} must start, this has ${counts[pos]}.`);
+    if (counts[pos] > meta.max) errors.push(`At most ${meta.max} ${meta.short} can start, this has ${counts[pos]}.`);
+  }
+
+  const formation = errors.length === 0 ? `${counts[DEF]}-${counts[MID]}-${counts[FWD]}` : null;
+  return { valid: errors.length === 0, errors, formation };
+}
+
+/**
+ * Apply FPL's automatic substitutions to a submitted side.
+ *
+ * A starter who finished the gameweek without playing is replaced by the
+ * highest-priority bench player who did, provided the formation survives. A
+ * player whose match is still to come is left alone - nothing has happened yet.
+ *
+ * @param {object} submission `{ xi, bench }` of players carrying `played` and `settled`
+ * @returns {{xi:object[], substitutions:{out:object, in:object}[]}}
+ */
+export function applyAutoSubs({ xi, bench }) {
+  const substitutions = [];
+  const finalXi = [...xi];
+  const available = [...bench];
+
+  const blanked = finalXi.filter((p) => p.settled && !p.played);
+  for (const out of blanked) {
+    const isKeeper = out.position === GKP;
+    const index = available.findIndex((candidate) => {
+      if (!candidate.played) return false;
+      if (isKeeper) return candidate.position === GKP;
+      if (candidate.position === GKP) return false;
+      const trial = finalXi.map((p) => (p.id === out.id ? candidate : p));
+      return validateXi(trial).valid;
+    });
+    if (index === -1) continue;
+
+    const replacement = available.splice(index, 1)[0];
+    const at = finalXi.findIndex((p) => p.id === out.id);
+    finalXi[at] = replacement;
+    substitutions.push({ out, in: replacement });
+  }
+
+  return { xi: finalXi, substitutions };
 }

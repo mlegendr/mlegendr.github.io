@@ -41,6 +41,7 @@ export function emptyState(gameweek = 1) {
     savedXi: null,                 // last confirmed starting XI, if any
     overrides: {},                 // playerId -> { minutes, availability, defconRate }
     protectedIds: [],              // players the planner may never sell
+    submissions: {},               // gameweek -> the side actually submitted
     log: [],
   };
 }
@@ -231,6 +232,36 @@ export function advanceGameweek(state, { to = state.gameweek + 1 } = {}) {
     freeTransfers,
     log: [...state.log, { gameweek: to, type: 'advance', freeHitReverted: !!state.freeHitRestore }],
   };
+}
+
+/**
+ * Record the side submitted for a gameweek, so the live score can be worked out
+ * later against the eleven that actually played rather than a fresh suggestion.
+ */
+export function recordSubmission(state, gameweek, submission) {
+  const { xi, bench, captain, viceCaptain, chip } = submission;
+  const owned = new Set(state.picks.map((p) => p.playerId));
+
+  const all = [...xi, ...bench];
+  if (all.length !== SQUAD_SIZE) throw new Error(`A submission must account for all ${SQUAD_SIZE} players.`);
+  if (new Set(all).size !== all.length) throw new Error('A player cannot be both starting and benched.');
+  for (const id of all) if (!owned.has(id)) throw new Error('Submission contains a player not in the squad.');
+  if (!xi.includes(captain)) throw new Error('The captain must be in the starting eleven.');
+  if (!xi.includes(viceCaptain)) throw new Error('The vice-captain must be in the starting eleven.');
+  if (captain === viceCaptain) throw new Error('The captain and vice-captain must be different players.');
+
+  return {
+    ...state,
+    submissions: {
+      ...state.submissions,
+      [gameweek]: { xi: [...xi], bench: [...bench], captain, viceCaptain, chip: chip ?? 'none' },
+    },
+    log: [...state.log, { gameweek, type: 'submitted', chip: chip ?? 'none', captain }],
+  };
+}
+
+export function submissionFor(state, gameweek) {
+  return state.submissions?.[gameweek] ?? null;
 }
 
 /** Squad entries decorated with live price, sell value and projection hooks. */

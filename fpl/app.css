@@ -242,6 +242,24 @@ details.why summary::marker { color: var(--text-muted); }
 .why-subtotal { border-top: 1px solid var(--border); margin-top: .25rem; padding-top: .25rem; }
 .why-total { border-top: 1px solid var(--border); margin-top: .25rem; padding-top: .25rem; font-weight: 600; }
 
+.submitted { border-top: 1px solid var(--border); margin-top: 1rem; padding-top: .8rem; }
+.submitted h3 { font-size: .95rem; margin: 0; }
+.xi-groups { display: grid; gap: .8rem; }
+.xi-group h4 { margin: 0 0 .3rem; font-size: .74rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 600; }
+.xi-row { display: flex; flex-wrap: wrap; gap: .35rem; }
+.xi-pick {
+  display: inline-flex; align-items: center; gap: .3rem; padding: .25rem .5rem;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2);
+  font-size: .84rem; cursor: pointer;
+}
+.xi-pick:hover { border-color: var(--accent); }
+.xi-pick.is-captain { border-color: var(--accent); border-width: 2px; }
+.xi-pick.is-vice { border-color: var(--accent-2); }
+.xi-pick .armband { font-size: .72rem; font-weight: 700; color: var(--accent); }
+.xi-pick .order { color: var(--text-muted); font-size: .74rem; }
+.xi-pick button { border: 0; background: none; padding: 0 .15rem; color: var(--text-muted); font-size: .8rem; line-height: 1; }
+.xi-pick button:hover { color: var(--accent); }
+
 .hint {
   background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
   padding: .5rem .7rem; font-size: .82rem; overflow-x: auto; margin: .6rem 0 0;

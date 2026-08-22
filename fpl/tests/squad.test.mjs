@@ -5,6 +5,7 @@ import { GKP, DEF, MID, FWD, MAX_FREE_TRANSFERS } from '../js/rules.js';
 import {
   emptyState, initialSquad, validateSquad, applyTransfers, declareChip,
   advanceGameweek, squadValue, sellValue, isPreSeason, freeTransfersAvailable,
+  recordSubmission, submissionFor,
 } from '../js/squad.js';
 
 /**
@@ -229,4 +230,47 @@ test('a second transfer in gameweek 2 does cost four points', () => {
   ], {}, 2);
   const { cost } = applyTransfers(state, { out: [8, 9], in: [90, 91] }, snapshot);
   assert.equal(cost, 4);
+});
+
+// ── Recording the submitted side ───────────────────────────────────────────
+
+const SUBMISSION = {
+  xi: [1, 3, 4, 5, 8, 9, 10, 11, 13, 14, 15],
+  bench: [2, 6, 7, 12],
+  captain: 13,
+  viceCaptain: 8,
+  chip: 'none',
+};
+
+test('a submitted side is recorded against its gameweek and survives advancing', () => {
+  const { state } = setup();
+  const recorded = recordSubmission(state, state.gameweek, SUBMISSION);
+
+  const stored = submissionFor(recorded, state.gameweek);
+  assert.deepEqual(stored.xi, SUBMISSION.xi);
+  assert.equal(stored.captain, 13);
+
+  const next = advanceGameweek(recorded);
+  assert.ok(submissionFor(next, state.gameweek), 'still there a gameweek later');
+  assert.equal(submissionFor(next, next.gameweek), null, 'and nothing yet for the new one');
+});
+
+test('a submission must account for the whole squad and name a valid captain', () => {
+  const { state } = setup();
+  assert.throws(() => recordSubmission(state, 2, { ...SUBMISSION, bench: [2, 6, 7] }),
+    /account for all 15/);
+  assert.throws(() => recordSubmission(state, 2, { ...SUBMISSION, captain: 2 }),
+    /captain must be in the starting eleven/);
+  assert.throws(() => recordSubmission(state, 2, { ...SUBMISSION, viceCaptain: 13 }),
+    /must be different players/);
+  assert.throws(() => recordSubmission(state, 2, { ...SUBMISSION, xi: [...SUBMISSION.xi.slice(1), 2] }),
+    /both starting and benched|account for all 15/);
+});
+
+test('each gameweek keeps its own side', () => {
+  const { state } = setup();
+  let s = recordSubmission(state, 2, SUBMISSION);
+  s = recordSubmission(s, 3, { ...SUBMISSION, captain: 14 });
+  assert.equal(submissionFor(s, 2).captain, 13);
+  assert.equal(submissionFor(s, 3).captain, 14);
 });

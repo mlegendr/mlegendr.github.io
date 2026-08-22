@@ -16,9 +16,11 @@ import { loadBestSnapshot, loadState, saveState, clearState, readSnapshotFile, e
 import {
   emptyState, initialSquad, validateSquad, applyTransfers, declareChip,
   advanceGameweek, squadValue, squadPlayers, sellValue, isPreSeason, freeTransfersAvailable,
+  recordSubmission, submissionFor,
 } from './squad.js';
 import { projectSquad, teamGamesPlayed, startProbability, recentRole } from './xp.js';
-import { optimiseLineup, lineupDelta } from './lineup.js';
+import { optimiseLineup, lineupDelta, validateXi } from './lineup.js';
+import { liveScore } from './live.js';
 import { planTransfers, describe, PLANNER_DEFAULTS } from './transfers.js';
 import { resolveSquad, resolveSelections, describeResolution, parseTeamNews, applyTeamNews } from './roster.js';
 
@@ -35,6 +37,7 @@ const app = {
   planResult: null,
   lastSaved: null,
   saveWarned: false,
+  draft: null,        // the side being recorded: { xi, bench, captain, viceCaptain }
   pendingTransfers: [],
   recordedSelections: null,   // XI/armbands from a loaded squad file
   purchasePrices: null,       // what was actually paid, from a loaded squad file
@@ -412,22 +415,51 @@ function renderSquadTab() {
  */
 function renderLiveSummary(players) {
   const box = $('#live-summary');
+  const detail = $('#live-detail');
   box.replaceChildren();
+  detail.replaceChildren();
+
   const gameweek = app.snapshot.currentEvent;
   if (!gameweek || players.some((p) => p.eventPoints == null)) return;
 
   const states = players.map((p) => fixtureState(p.teamId, gameweek));
   if (states.every((s) => s === 'upcoming' || s === 'none')) return;   // not started yet
 
-  const total = players.reduce((a, p) => a + (p.eventPoints ?? 0), 0);
-  const toPlay = states.filter((s) => s === 'upcoming').length;
-  const live = states.filter((s) => s === 'live').length;
+  const submission = submissionFor(app.state, gameweek);
+  if (!submission) {
+    // Without a recorded side there is no honest total, so report the squad and
+    // say what is missing rather than implying a score.
+    box.append(stat(`Gameweek ${gameweek}`, `${players.reduce((a, p) => a + (p.eventPoints ?? 0), 0)} pts`));
+    box.append(stat('Across', 'all 15'));
+    detail.append(note('No side recorded for this gameweek, so this is the whole squad. '
+      + 'Save the eleven you submitted on the Lineup tab and this becomes your actual score.'));
+    return;
+  }
 
-  box.append(stat(`Gameweek ${gameweek} so far`, `${total} pts`));
-  if (live) box.append(stat('In progress', `${live} player${live === 1 ? '' : 's'}`));
-  if (toPlay) box.append(stat('Yet to play', `${toPlay} player${toPlay === 1 ? '' : 's'}`));
-  box.append(note('Across all 15. Points for your picked eleven depend on the side you '
-    + 'submitted for that gameweek, which the app does not store once it moves on.'));
+  const score = liveScore(app.snapshot, submission, gameweek);
+  if (!score) return;
+
+  box.append(stat(`Gameweek ${gameweek}${score.settled ? '' : ' so far'}`, `${score.total} pts`));
+  if (score.playersInPlay) box.append(stat('In progress', `${score.playersInPlay}`));
+  if (score.playersToPlay) box.append(stat('Yet to play', `${score.playersToPlay}`));
+  if (score.chip !== 'none') box.append(stat('Chip', CHIPS[score.chip].name));
+
+  const lines = [];
+  lines.push(score.benchCounts
+    ? 'All fifteen count under Bench Boost.'
+    : `Your submitted eleven, ${score.armband ? `captain ${score.armband.label}` : 'no captain'}`
+      + ` doubled${score.chip === '3xc' ? ' twice over' : ''} for ${score.armbandBonus} extra.`);
+
+  if (score.armbandSwitched) {
+    lines.push(`The captain did not play, so the armband passed to ${score.armband.label}.`);
+  }
+  for (const sub of score.substitutions) {
+    lines.push(`Auto-substitution: ${sub.in.label} replaced ${sub.out.label}, who did not play.`);
+  }
+  if (!score.settled) {
+    lines.push('Substitutions are only settled once a player\'s match has finished, so this can still move.');
+  }
+  for (const line of lines) detail.append(note(line));
 }
 
 /**
@@ -672,6 +704,181 @@ function confirmSquad() {
 
 function wireLineupTab() {
   $('#lineup-run').addEventListener('click', () => { runLineup(); });
+  $('#submit-adopt').addEventListener('click', () => {
+    if (!app.lineup) runLineup();
+    if (!app.lineup) return;
+    app.draft = {
+      xi: app.lineup.xi.map((p) => p.id),
+      bench: app.lineup.bench.map((p) => p.id),
+      captain: app.lineup.captain.id,
+      viceCaptain: app.lineup.viceCaptain.id,
+    };
+    renderSubmitEditor();
+  });
+  $('#submit-save').addEventListener('click', saveSubmission);
+}
+
+/**
+ * The side being recorded. Starts from whatever was submitted for this
+ * gameweek, or the optimiser's suggestion if nothing has been recorded yet.
+ */
+function ensureDraft() {
+  if (app.draft) return app.draft;
+  const existing = submissionFor(app.state, app.state.gameweek);
+  if (existing) {
+    app.draft = { xi: [...existing.xi], bench: [...existing.bench],
+      captain: existing.captain, viceCaptain: existing.viceCaptain };
+  } else if (app.lineup) {
+    app.draft = {
+      xi: app.lineup.xi.map((p) => p.id),
+      bench: app.lineup.bench.map((p) => p.id),
+      captain: app.lineup.captain.id,
+      viceCaptain: app.lineup.viceCaptain.id,
+    };
+  }
+  return app.draft;
+}
+
+function renderSubmitEditor() {
+  const box = $('#submit-editor');
+  box.replaceChildren();
+  const draft = ensureDraft();
+  if (!draft) { box.append(note('Optimise the XI first, then adjust it to match what you submitted.')); return; }
+
+  const byId = new Map(squadPlayers(app.state, app.snapshot).map((p) => [p.id, p]));
+  const groups = document.createElement('div');
+  groups.className = 'xi-groups';
+
+  groups.append(pickGroup('Starting XI', draft.xi.map((id) => byId.get(id)).filter(Boolean), true, byId));
+  groups.append(pickGroup('Bench, in order', draft.bench.map((id) => byId.get(id)).filter(Boolean), false, byId));
+  box.append(groups);
+
+  const xiPlayers = draft.xi.map((id) => byId.get(id)).filter(Boolean);
+  const check = validateXi(xiPlayers);
+  const existing = submissionFor(app.state, app.state.gameweek);
+  $('#submit-errors').textContent = check.valid ? '' : check.errors.join(' ');
+  $('#submit-save').disabled = !check.valid;
+  $('#submit-save').textContent = existing ? 'Update submitted side' : 'Save as submitted';
+
+  if (check.valid) {
+    box.append(note(`${check.formation} · captain ${byId.get(draft.captain)?.label ?? '?'}`
+      + ` · vice ${byId.get(draft.viceCaptain)?.label ?? '?'}`
+      + (existing ? ' · a side is already recorded for this gameweek' : '')));
+  }
+}
+
+function pickGroup(title, players, starting, byId) {
+  const group = document.createElement('div');
+  group.className = 'xi-group';
+  const heading = document.createElement('h4');
+  heading.textContent = title;
+  group.append(heading);
+
+  const row = document.createElement('div');
+  row.className = 'xi-row';
+  players.forEach((player, index) => row.append(pickChip(player, starting, index, byId)));
+  group.append(row);
+  return group;
+}
+
+function pickChip(player, starting, index, byId) {
+  const draft = app.draft;
+  const chip = document.createElement('span');
+  chip.className = 'xi-pick'
+    + (player.id === draft.captain ? ' is-captain' : '')
+    + (player.id === draft.viceCaptain ? ' is-vice' : '');
+
+  if (!starting && player.position !== GKP) {
+    const order = document.createElement('span');
+    order.className = 'order';
+    order.textContent = `${index}.`;
+    chip.append(order);
+  }
+
+  const name = document.createElement('span');
+  name.textContent = `${player.name} (${POSITIONS[player.position].short})`;
+  name.title = starting ? 'Move to the bench' : 'Move into the starting XI';
+  name.addEventListener('click', () => { toggleStarter(player.id); });
+  chip.append(name);
+
+  if (player.id === draft.captain || player.id === draft.viceCaptain) {
+    const badge = document.createElement('span');
+    badge.className = 'armband';
+    badge.textContent = player.id === draft.captain ? 'C' : 'V';
+    chip.append(badge);
+  }
+
+  if (starting) {
+    chip.append(iconButton('Ⓒ', 'Make captain', () => {
+      if (draft.viceCaptain === player.id) draft.viceCaptain = draft.captain;
+      draft.captain = player.id;
+      renderSubmitEditor();
+    }));
+    chip.append(iconButton('Ⓥ', 'Make vice-captain', () => {
+      if (draft.captain === player.id) draft.captain = draft.viceCaptain;
+      draft.viceCaptain = player.id;
+      renderSubmitEditor();
+    }));
+  } else if (player.position !== GKP) {
+    chip.append(iconButton('↑', 'Higher bench priority', () => moveBench(player.id, -1)));
+    chip.append(iconButton('↓', 'Lower bench priority', () => moveBench(player.id, 1)));
+  }
+
+  return chip;
+}
+
+function iconButton(label, title, onClick) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = label;
+  button.title = title;
+  button.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+  return button;
+}
+
+function toggleStarter(id) {
+  const draft = app.draft;
+  if (draft.xi.includes(id)) {
+    draft.xi = draft.xi.filter((x) => x !== id);
+    draft.bench = [...draft.bench, id];
+  } else {
+    draft.bench = draft.bench.filter((x) => x !== id);
+    draft.xi = [...draft.xi, id];
+  }
+  // The armbands must stay with players who are actually starting.
+  const byId = new Map(squadPlayers(app.state, app.snapshot).map((p) => [p.id, p]));
+  if (!draft.xi.includes(draft.captain)) draft.captain = draft.xi[0];
+  if (!draft.xi.includes(draft.viceCaptain) || draft.viceCaptain === draft.captain) {
+    draft.viceCaptain = draft.xi.find((x) => x !== draft.captain);
+  }
+  // Keep the reserve keeper at the head of the bench, as FPL does.
+  draft.bench.sort((a, b) => (byId.get(b)?.position === GKP ? 1 : 0) - (byId.get(a)?.position === GKP ? 1 : 0));
+  renderSubmitEditor();
+}
+
+function moveBench(id, delta) {
+  const draft = app.draft;
+  const outfield = draft.bench.filter((x) => app.snapshot.player(x)?.position !== GKP);
+  const keeper = draft.bench.filter((x) => app.snapshot.player(x)?.position === GKP);
+  const at = outfield.indexOf(id);
+  const to = at + delta;
+  if (at === -1 || to < 0 || to >= outfield.length) return;
+  [outfield[at], outfield[to]] = [outfield[to], outfield[at]];
+  draft.bench = [...keeper, ...outfield];
+  renderSubmitEditor();
+}
+
+function saveSubmission() {
+  try {
+    app.state = recordSubmission(app.state, app.state.gameweek, {
+      ...app.draft,
+      chip: app.state.activeChip,
+    });
+    toast(`Side recorded for Gameweek ${app.state.gameweek}.`, 'good');
+    renderAll();
+  } catch (err) {
+    $('#submit-errors').textContent = err.message;
+  }
 }
 
 function renderLineupTab() {
@@ -700,7 +907,6 @@ function runLineup() {
     stat('Starting XI', `${lineup.startingPoints.toFixed(1)} pts`),
     stat(CHIPS[chip]?.benchCounts ? 'Bench (counting)' : 'Bench (reserve)', `${lineup.benchPoints.toFixed(1)} pts`),
     stat('Armband', `+${lineup.captainBonus.toFixed(1)} pts`),
-    ...liveStat(lineup),
   );
 
   // Pitch: one row per position line.
@@ -727,6 +933,7 @@ function runLineup() {
   });
 
   renderLineupChanges(lineup);
+  renderSubmitEditor();
 
   const vice = lineup.viceCaptain;
   $('#armband-note').innerHTML = `<p class="small muted">Captain <strong>${escapeHtml(lineup.captain.label ?? lineup.captain.name)}</strong>
@@ -781,29 +988,6 @@ function renderLineupChanges(lineup) {
     box.append(note(`Captaincy: the model prefers ${lineup.captain.label} `
       + `(${lineup.captain.points.toFixed(1)}) over your current pick ${swap?.label ?? savedCaptain}.`));
   }
-}
-
-/**
- * Points the picked side has scored so far, when the gameweek is under way.
- * This is the side as picked: auto-substitutions are not applied, since they
- * are only settled once every match has finished.
- */
-function liveStat(lineup) {
-  const gameweek = app.snapshot.currentEvent;
-  if (!gameweek || gameweek !== app.state.gameweek) return [];
-
-  const counted = [...lineup.xi, ...(CHIPS[lineup.chip]?.benchCounts ? lineup.bench : [])];
-  if (counted.some((p) => p.eventPoints == null)) return [];
-
-  const anyStarted = counted.some((p) => fixtureState(p.teamId, gameweek) !== 'upcoming');
-  if (!anyStarted) return [];
-
-  const base = counted.reduce((a, p) => a + (p.eventPoints ?? 0), 0);
-  const captainExtra = (lineup.captain?.eventPoints ?? 0) * (captainMultiplier(lineup.chip) - 1);
-  const waiting = counted.filter((p) => fixtureState(p.teamId, gameweek) === 'upcoming').length;
-
-  return [stat(`GW${gameweek} so far`,
-    `${base + captainExtra} pts${waiting ? ` · ${waiting} to play` : ''}`)];
 }
 
 function playerCard(player, lineup) {

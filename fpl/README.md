@@ -243,10 +243,26 @@ whose match has not kicked off shows a dash rather than a zero: he has not
 failed to score, he has not played. A match under way is marked, and the squad
 total sits above the table with how many players are still to come.
 
-Once a deadline passes the app moves on to planning the next gameweek while the
-current one is still being played, so the live figures live on the *Squad* tab
-and cover all fifteen. The points your picked eleven actually scored depend on
-the side you submitted, which the app does not keep once it moves on.
+**Record the side you submitted** and the total becomes yours rather than a
+suggestion. On the *Lineup* tab, *Use the optimal XI* fills in the recommendation
+and *Save as submitted* records it; click any player to move him between the XI
+and the bench, use Ⓒ and Ⓥ for the armbands, and the arrows for bench order. Each
+gameweek keeps its own side.
+
+The *Squad* tab then scores that eleven live:
+
+> **Gameweek 1 so far** 65 pts · **Yet to play** 1
+> Your submitted eleven, captain João Pedro (CHE) doubled for 0 extra.
+> Auto-substitution: Greaves (IPS) replaced Mbeumo (MUN), who did not play.
+
+Substitutions follow FPL's own rules and timing: a starter is only replaced once
+his fixtures have finished and he did not appear, by the highest-priority bench
+player who played, provided the formation survives. Nothing is substituted while
+a match is still to come. The armband passes to the vice-captain on the same
+test. Under Bench Boost all fifteen count and nobody is substituted.
+
+Without a recorded side the total covers all fifteen and says so, rather than
+implying a score it cannot know.
 
 **Predicted lineups have to be pasted in, and here is why.** Confirmed lineups
 are published about an hour before kickoff — but the FPL deadline is 90 minutes
@@ -361,7 +377,7 @@ An honest ranking of what this model is still missing, worst first.
 node --test 'fpl/tests/*.test.mjs'
 ```
 
-94 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
+108 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
 squad legality, the XI optimiser, chip behaviour, the recent-role model, team-news
 parsing, protected players, and the transfer planner
 (including that it refuses unaffordable moves, respects the club limit, and takes
@@ -378,6 +394,7 @@ fpl/
   js/snapshot.js    normalises FPL API data
   js/xp.js          expected-points model
   js/lineup.js      XI, bench order, captain and vice
+  js/live.js        scoring a gameweek in progress against the submitted side
   js/squad.js       squad state, transfers, budget, chips
   js/transfers.js   transfer planner
   js/roster.js      resolves a squad written by name into player ids

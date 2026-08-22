@@ -86,6 +86,7 @@
         </div>
         <p id="chip-note" class="muted small"></p>
         <div id="live-summary" class="summary-row"></div>
+        <div id="live-detail"></div>
         <div class="table-scroll">
           <table id="squad-table" class="grid">
             <thead>
@@ -116,6 +117,21 @@
       <div id="pitch" class="pitch"></div>
       <div id="bench" class="bench"></div>
       <div id="armband-note"></div>
+
+      <div class="submitted">
+        <div class="card-head">
+          <h3>Your submitted side</h3>
+          <div class="card-actions">
+            <button id="submit-adopt" class="ghost">Use the optimal XI</button>
+            <button id="submit-save" class="primary">Save as submitted</button>
+          </div>
+        </div>
+        <p class="muted small">Record the eleven you actually put in, so the live score is
+           yours rather than a suggestion. Click a player to move him between the XI and the
+           bench; the arrows set bench order.</p>
+        <div id="submit-editor"></div>
+        <p id="submit-errors" class="errors"></p>
+      </div>
       <div class="table-scroll">
         <table id="lineup-table" class="grid">
           <thead><tr><th>Player</th><th>Pos</th><th>Role</th><th>Fixture</th><th class="num">Projected</th><th>Why</th></tr></thead>
