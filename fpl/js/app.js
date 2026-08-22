@@ -18,7 +18,7 @@ import {
   advanceGameweek, squadValue, squadPlayers, sellValue, isPreSeason, freeTransfersAvailable,
   recordSubmission, submissionFor,
 } from './squad.js';
-import { projectSquad, teamGamesPlayed, startProbability, recentRole } from './xp.js';
+import { projectSquad, teamGamesPlayed, startProbability, recentRole, explainStartProbability } from './xp.js';
 import { optimiseLineup, lineupDelta, validateXi } from './lineup.js';
 import { liveScore } from './live.js';
 import { planTransfers, describe, PLANNER_DEFAULTS } from './transfers.js';
@@ -511,13 +511,9 @@ function liveCell(player) {
 function startCell(probability, player) {
   const span = document.createElement('span');
   span.textContent = `${Math.round(probability * 100)}%`;
-  const role = recentRole(player);
-  span.title = role
-    ? `From the last ${role.matches} completed match${role.matches === 1 ? '' : 'es'}: `
-      + `started about ${Math.round(role.startProbability * 100)}% of them. `
-      + 'A gameweek in progress is not counted.'
-    : 'No completed match history in this snapshot — estimated from season minutes. '
-      + 'Re-run the refresh script to pull match history.';
+  span.title = explainStartProbability(app.snapshot, player, {
+    override: app.state.overrides[player.id],
+  });
   if (probability < 0.6) span.className = 'news';
   return span;
 }
@@ -1104,10 +1100,9 @@ function whyCell(detail, player) {
   details.append(list);
   cell.append(details);
 
-  const availability = app.snapshot.availability(player);
-  if (availability < 1) {
-    cell.append(note(`Scaled to a ${Math.round(availability * 100)}% chance of playing.`));
-  }
+  cell.append(note(explainStartProbability(app.snapshot, player, {
+    override: app.state.overrides[player.id],
+  })));
   return cell;
 }
 

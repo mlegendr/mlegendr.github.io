@@ -137,6 +137,8 @@ export function recentRole(player, opts = {}) {
   return {
     startProbability,
     weight,                    // total recency weight, for smoothing
+    rounds: window.map((m) => m.round).filter((r) => r != null),
+    startedCount: window.filter((m) => m.started).length,
     subAppearanceRate,
     minutesIfStarting: clamp(whenStarting, 1, 90),
     minutesIfSub: clamp(whenNot > 0 ? whenNot : 15, 1, 90),
@@ -169,6 +171,7 @@ export function minutesProfile(snapshot, player, opts = {}) {
       minutesIfStarting: minutes,
       minutesIfSub: minutes,
       expectedMinutes: minutes,
+      basis: { source: 'override', minutes, availability },
     };
   }
 
@@ -178,7 +181,8 @@ export function minutesProfile(snapshot, player, opts = {}) {
   if (!role) {
     // Without per-match history, infer a start share from the season's minutes.
     const games = o.teamGames ?? teamGamesPlayed(snapshot).get(player.teamId) ?? 0;
-    const share = games > 0 ? clamp(player.minutes / (games * 90), 0, 1) : clamp(blended / 90, 0, 1);
+    const settled = player.settledMinutes ?? player.minutes;
+    const share = games > 0 ? clamp(settled / (games * 90), 0, 1) : clamp(blended / 90, 0, 1);
     return {
       availability,
       pStart: availability * share,
@@ -186,6 +190,13 @@ export function minutesProfile(snapshot, player, opts = {}) {
       minutesIfStarting: Math.max(blended, 70),
       minutesIfSub: 15,
       expectedMinutes: availability * blended,
+      basis: {
+        source: games > 0 ? 'season' : 'prior',
+        settledMinutes: settled,
+        teamGamesFinished: games,
+        excludedRounds: player.excludedRounds ?? [],
+        availability,
+      },
     };
   }
 
@@ -205,7 +216,63 @@ export function minutesProfile(snapshot, player, opts = {}) {
     minutesIfStarting: role.minutesIfStarting,
     minutesIfSub: role.minutesIfSub,
     expectedMinutes: availability * blended,
+    basis: {
+      source: 'history',
+      matches: role.matches,
+      rounds: role.rounds,
+      startedCount: role.startedCount,
+      smoothed: pStartRaw,
+      excludedRounds: player.excludedRounds ?? [],
+      availability,
+    },
   };
+}
+
+/**
+ * A sentence explaining a start probability, naming the matches behind it and
+ * the gameweek deliberately left out. The number matters enough to the
+ * optimiser that it should be checkable rather than taken on trust.
+ */
+export function explainStartProbability(snapshot, player, opts = {}) {
+  const profile = minutesProfile(snapshot, player, opts);
+  const basis = profile.basis ?? {};
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const parts = [];
+
+  if (basis.availability <= 0) {
+    parts.push(`Not expected to play${player.news ? `: ${player.news}` : '.'}`);
+    return parts.join(' ');
+  }
+
+  if (basis.source === 'override') {
+    parts.push(`Set by hand to ${basis.minutes} expected minutes.`);
+  } else if (basis.source === 'history') {
+    const span = basis.rounds.length
+      ? ` (GW${basis.rounds[0]}${basis.rounds.length > 1 ? `–GW${basis.rounds.at(-1)}` : ''})`
+      : '';
+    parts.push(`Started ${basis.startedCount} of the last ${basis.matches} completed `
+      + `match${basis.matches === 1 ? '' : 'es'}${span}, weighted towards the most recent, `
+      + `smoothed to ${pct(basis.smoothed)}.`);
+  } else if (basis.source === 'season') {
+    parts.push(`No completed match history for this player, so estimated from `
+      + `${Math.round(basis.settledMinutes)} minutes across ${basis.teamGamesFinished} `
+      + `completed team fixture${basis.teamGamesFinished === 1 ? '' : 's'}.`);
+  } else {
+    parts.push('No completed fixtures yet this season, so a default is assumed.');
+  }
+
+  if (basis.excludedRounds?.length) {
+    parts.push(`Gameweek ${basis.excludedRounds.join(', ')} `
+      + `${basis.excludedRounds.length === 1 ? 'is' : 'are'} not finished and `
+      + `${basis.excludedRounds.length === 1 ? 'was' : 'were'} not counted.`);
+  }
+
+  if (basis.availability < 1) {
+    parts.push(`Scaled by a ${pct(basis.availability)} chance of playing.`);
+  }
+
+  parts.push(`Result: ${pct(profile.pStart)}.`);
+  return parts.join(' ');
 }
 
 /**
@@ -228,7 +295,7 @@ export function expectedMinutes(snapshot, player, opts = {}) {
   const prior = o.override?.minutesPrior ?? o.minutesPrior;
   const seasonEstimate = games > 0
     ? (() => {
-        const seasonRate = clamp(player.minutes / games, 0, 90);
+        const seasonRate = clamp((player.settledMinutes ?? player.minutes) / games, 0, 90);
         const w = games / (games + o.minutesPriorGames);
         return w * seasonRate + (1 - w) * prior;
       })()

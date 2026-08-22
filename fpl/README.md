@@ -236,6 +236,23 @@ anyone whose fixture is still to come, and being the most recent it would carry
 the most weight of all — so a nailed starter would look dropped every Saturday
 morning. A finished match with no minutes *is* evidence and does count.
 
+The rule is that **a round at or after the one being played is never history**,
+whatever a snapshot's flags happen to say. Fixture-level flags are used when
+present and event-level ones as a fallback, but neither is trusted to override
+that. Live minutes are held out of the season rate too, so a player forty-five
+minutes into a match does not have his rate inflated against a games-played
+count that has not risen yet.
+
+Because this number moves the optimiser so much, it explains itself. Hover the
+**Start** column, or expand a *Why* cell:
+
+> Started 5 of the last 5 completed matches (GW1–GW5), weighted towards the most
+> recent, smoothed to 92%. Gameweek 6 is not finished and was not counted.
+> Result: 92%.
+
+If a gameweek you expect to be excluded is not named there, something is wrong —
+tell it rather than trusting the percentage.
+
 ### Watching a gameweek in progress
 
 The squad table carries a **GW*n*** column with points scored so far. A player
@@ -377,7 +394,7 @@ An honest ranking of what this model is still missing, worst first.
 node --test 'fpl/tests/*.test.mjs'
 ```
 
-108 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
+112 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
 squad legality, the XI optimiser, chip behaviour, the recent-role model, team-news
 parsing, protected players, and the transfer planner
 (including that it refuses unaffordable moves, respects the club limit, and takes

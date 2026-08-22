@@ -105,13 +105,15 @@ test('expected minutes blend season data with the prior', () => {
   const player = snapshot.player(1);
   assert.equal(expectedMinutes(snapshot, player, { teamGames: 0, minutesPrior: 68 }), 68);
   assert.equal(expectedMinutes(snapshot, player, { override: { minutes: 30 } }), 30);
-  const blended = expectedMinutes(snapshot, { ...player, minutes: 180 }, { teamGames: 2, minutesPrior: 68 });
+  // settledMinutes is what the season rate reads, so it moves with minutes.
+  const blended = expectedMinutes(snapshot,
+    { ...player, minutes: 180, settledMinutes: 180 }, { teamGames: 2, minutesPrior: 68 });
   assert.ok(blended > 68 && blended < 90, `expected between prior and 90, got ${blended}`);
 });
 
 // ── Recent-role model ──────────────────────────────────────────────────────
 
-import { recentRole, startProbability } from '../js/xp.js';
+import { recentRole, startProbability, explainStartProbability } from '../js/xp.js';
 
 /** Attach a run of matches to a player: `true` = started, `false` = benched. */
 function withHistory(snapshot, id, pattern, { startMinutes = 90, subMinutes = 10 } = {}) {
@@ -334,4 +336,81 @@ test('without the filter that same player would look dropped', () => {
   ] };
   assert.ok(recentRole(player).startProbability < 0.75,
     'which is exactly the distortion the filter exists to prevent');
+});
+
+// ── The unplayed-fixture invariant ─────────────────────────────────────────
+
+/**
+ * Gameweek 6 is under way. Five completed gameweeks of starts sit in history,
+ * plus a row for GW6 that reads zero minutes because the match is still to
+ * come. Snapshots vary in which flags they carry, so every combination is
+ * checked: none of them may let that row count.
+ */
+function midGameweekSnapshot({ fixtureIds = true, eventFlags = true, fixtureFlags = true } = {}) {
+  const rows = [
+    ...Array.from({ length: 5 }, (_, i) => ({
+      round: i + 1, fixture: fixtureIds ? i + 1 : undefined, minutes: 90, starts: 1, total_points: 6 })),
+    { round: 6, fixture: fixtureIds ? 6 : undefined, minutes: 0, starts: 0, total_points: 0 },
+  ];
+  return loadSnapshot({
+    elements: [{ id: 1, web_name: 'Nailed', first_name: 'N', second_name: '', element_type: MID,
+      team: 1, now_cost: 60, status: 'a', minutes: 450, starts: 5 }],
+    teams: [{ id: 1, name: 'A', short_name: 'A' }, { id: 2, name: 'B', short_name: 'B' }],
+    events: Array.from({ length: 6 }, (_, i) => ({
+      id: i + 1, finished: eventFlags ? i < 5 : false, is_current: i === 5, is_next: false })),
+    fixtures: Array.from({ length: 6 }, (_, i) => ({
+      id: i + 1, event: i + 1, team_h: 1, team_a: 2, team_h_difficulty: 3, team_a_difficulty: 3,
+      finished: fixtureFlags ? i < 5 : false, started: true })),
+    details: { 1: { recent: rows } },
+  });
+}
+
+test('no combination of snapshot flags lets an unplayed match count', () => {
+  const combinations = [
+    { fixtureIds: true, eventFlags: true, fixtureFlags: true },
+    { fixtureIds: false, eventFlags: true, fixtureFlags: true },
+    { fixtureIds: false, eventFlags: false, fixtureFlags: true },
+    { fixtureIds: false, eventFlags: false, fixtureFlags: false },
+    { fixtureIds: true, eventFlags: false, fixtureFlags: false },
+  ];
+
+  for (const combination of combinations) {
+    const snapshot = midGameweekSnapshot(combination);
+    const player = snapshot.player(1);
+    const label = JSON.stringify(combination);
+
+    assert.equal(player.recent.length, 5, `history leaked an unplayed match: ${label}`);
+    assert.ok(player.recent.every((m) => m.round <= 5), `a round from the gameweek in progress survived: ${label}`);
+    assert.deepEqual(player.excludedRounds, [6], `the excluded round is not reported: ${label}`);
+
+    const p = startProbability(snapshot, player, { teamGames: 5 });
+    assert.ok(p > 0.85, `a nailed starter dropped to ${(p * 100).toFixed(0)}% with ${label}`);
+  }
+});
+
+test('live minutes do not inflate the season rate either', () => {
+  // Mid-match: 45 minutes are on the board but the fixture has not finished,
+  // so they belong to neither the numerator nor the denominator.
+  const snapshot = loadSnapshot({
+    elements: [{ id: 1, web_name: 'P', first_name: 'P', second_name: '', element_type: MID,
+      team: 1, now_cost: 60, status: 'a', minutes: 495, starts: 6 }],
+    teams: [{ id: 1, name: 'A', short_name: 'A' }, { id: 2, name: 'B', short_name: 'B' }],
+    events: Array.from({ length: 6 }, (_, i) => ({ id: i + 1, finished: i < 5, is_current: i === 5, is_next: false })),
+    fixtures: Array.from({ length: 6 }, (_, i) => ({
+      id: i + 1, event: i + 1, team_h: 1, team_a: 2, team_h_difficulty: 3, team_a_difficulty: 3,
+      finished: i < 5, started: true })),
+    details: { 1: { recent: [
+      ...Array.from({ length: 5 }, (_, i) => ({ round: i + 1, fixture: i + 1, minutes: 90, starts: 1, total_points: 6 })),
+      { round: 6, fixture: 6, minutes: 45, starts: 1, total_points: 2 },
+    ] } },
+  });
+  assert.equal(snapshot.player(1).settledMinutes, 450, 'the live 45 minutes are set aside');
+});
+
+test('the start probability explains where it came from', () => {
+  const snapshot = midGameweekSnapshot();
+  const text = explainStartProbability(snapshot, snapshot.player(1), { teamGames: 5 });
+  assert.match(text, /Started 5 of the last 5 completed matches \(GW1–GW5\)/);
+  assert.match(text, /Gameweek 6 is not finished and was not counted/);
+  assert.match(text, /Result: 9\d%/);
 });

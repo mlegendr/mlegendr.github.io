@@ -95,6 +95,9 @@ export function loadSnapshot(raw) {
       selectedBy: num(e.selected_by_percent),
       per90: minutes > 0 ? minutes / 90 : 0,
       startRate: starts > 0 && minutes > 0 ? minutes / (starts * 90) : 0,
+      // Overwritten below when per-match history says some minutes are live.
+      settledMinutes: minutes,
+      excludedRounds: [],
     });
   }
 
@@ -122,9 +125,17 @@ export function loadSnapshot(raw) {
   // recent, they would carry the most weight of all.
   const finishedFixtures = new Set(fixtures.filter((f) => f.finished).map((f) => f.id));
   const finishedRounds = new Set(events.filter((e) => e.finished).map((e) => e.id));
-  const roundIsFinished = (round) => finishedRounds.size > 0
-    ? finishedRounds.has(round)
-    : true;   // no event data: assume history is historical
+
+  // The gameweek being played, and anything after it, cannot be complete -
+  // whatever the flags say. Trusting the flags alone was a real hole: a
+  // snapshot without them let the round in progress count as history, and a
+  // player whose match was still to come looked as though he had been dropped.
+  const roundIsFinished = (round) => {
+    if (currentEvent != null && round >= currentEvent) return false;
+    if (nextEvent != null && round >= nextEvent) return false;
+    if (finishedRounds.size > 0) return finishedRounds.has(round);
+    return true;
+  };
 
   // Per-match history, when the refresh fetched it. This is what separates a
   // regular starter from a squad player with the same season minutes.
@@ -148,6 +159,13 @@ export function loadSnapshot(raw) {
     // Rows for a gameweek still in progress are kept separately: useless as
     // evidence of a player's role, but they carry his live minutes.
     player.liveRows = rows.filter((r) => !isFinished(r));
+    player.excludedRounds = [...new Set(player.liveRows.map((r) => r.round))];
+
+    // Season minutes accrue live, but the games counted against them only rise
+    // when a fixture finishes. Subtract the unfinished ones so the rate is not
+    // inflated mid-match.
+    const liveMinutes = player.liveRows.reduce((a, r) => a + r.minutes, 0);
+    player.settledMinutes = Math.max(0, player.minutes - liveMinutes);
     player.historyPast = detail.history_past ?? [];
   }
 
