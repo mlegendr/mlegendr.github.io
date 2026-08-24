@@ -14,7 +14,9 @@ function setup(candidates, { freeTransfers = 1, squadOverrides = {}, bank = null
   return { snapshot, state };
 }
 
-const OPTS = { epBlend: 0, horizon: 6, minutesPrior: 80, fromGameweek: 1 };
+// These exercise the planner, so they use the built-in model rather than
+// depending on projections published by anyone else.
+const OPTS = { source: 'model', epBlend: 0, horizon: 6, minutesPrior: 80, fromGameweek: 1 };
 
 test('an obviously better candidate is recommended for the free transfer', () => {
   // Player 8 is a replacement-level midfielder; candidate 90 is elite and affordable.

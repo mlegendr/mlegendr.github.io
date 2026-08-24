@@ -19,6 +19,7 @@ import {
   recordSubmission, submissionFor,
 } from './squad.js';
 import { projectSquad, teamGamesPlayed, startProbability, recentRole, explainStartProbability } from './xp.js';
+import { parsePredictedPoints, matchPredictions, coverage } from './predicted.js';
 import { optimiseLineup, lineupDelta, validateXi } from './lineup.js';
 import { liveScore } from './live.js';
 import { planTransfers, describe, PLANNER_DEFAULTS } from './transfers.js';
@@ -188,14 +189,22 @@ function renderMeta() {
 }
 
 /** Projections for a set of players across the horizon starting this gameweek. */
+/** Options every projection in the app shares, so one source drives them all. */
+function projectionOptions() {
+  return {
+    source: 'predicted',
+    predicted: app.state.predicted ?? {},
+    fallback: app.state.predictedFallback ?? 'ep',
+    overrides: app.state.overrides,
+    teamGamesMap: teamGamesPlayed(app.snapshot),
+  };
+}
+
 function project(players, horizon = 6) {
   const gameweeks = app.snapshot.horizon(app.state.gameweek, horizon);
   return {
     gameweeks,
-    projections: projectSquad(app.snapshot, players, gameweeks, {
-      overrides: app.state.overrides,
-      teamGamesMap: teamGamesPlayed(app.snapshot),
-    }),
+    projections: projectSquad(app.snapshot, players, gameweeks, projectionOptions()),
   };
 }
 
@@ -1039,6 +1048,20 @@ const COMPONENT_NAMES = {
  * projection is shown as its own line rather than quietly shifting the total.
  */
 function breakdown(detail) {
+  // Projections taken from someone else's published figure have no internal
+  // parts to show, so the breakdown says where the number came from instead.
+  if (detail.source === 'predicted') {
+    return { rows: [{ label: `imported prediction for GW${detail.gameweek}`, value: detail.predicted }],
+      modelTotal: detail.total, blend: null, total: detail.total, external: true };
+  }
+  if (detail.source === 'ep') {
+    const label = detail.verbatim
+      ? `FPL's own projection for GW${detail.gameweek}`
+      : `FPL's projection carried forward to GW${detail.gameweek}`;
+    return { rows: [{ label, value: detail.epNext ?? detail.total }],
+      modelTotal: detail.total, blend: null, total: detail.total, external: true };
+  }
+
   const parts = {};
   for (const fixture of detail.fixtures ?? []) {
     for (const [key, value] of Object.entries(fixture.detail.parts ?? {})) {
@@ -1059,7 +1082,9 @@ function explain(detail, player) {
   if (app.snapshot.availability(player) <= 0) {
     return `Not expected to play: ${player.news || 'unavailable'}.`;
   }
-  const { rows } = breakdown(detail);
+  const { rows, external, total } = breakdown(detail);
+  if (external) return `${rows[0].label}: ${total.toFixed(1)}`;
+
   const shown = rows.filter((r) => Math.abs(r.value) >= 0.15).slice(0, 3);
   const hidden = rows.length - shown.length;
   const text = shown.map((r) => `${r.label} ${r.value > 0 ? '+' : ''}${r.value.toFixed(1)}`).join(', ');
@@ -1072,7 +1097,8 @@ function whyCell(detail, player) {
   cell.className = 'wrap';
 
   const summary = explain(detail, player);
-  if (!detail || detail.blank || app.snapshot.availability(player) <= 0) {
+  if (!detail || detail.blank || app.snapshot.availability(player) <= 0
+      || breakdown(detail).external) {
     cell.textContent = summary;
     return cell;
   }
@@ -1216,8 +1242,8 @@ function runPlanner() {
       horizon: Number($('#opt-horizon').value),
       maxHits: Number($('#opt-hits').value),
       freeTransferValue: Number($('#opt-ftvalue').value),
-      overrides: app.state.overrides,
       protectedIds: app.state.protectedIds ?? [],
+      ...projectionOptions(),
     });
     app.planResult = result;
     renderPlans(result);
@@ -1478,6 +1504,24 @@ function wireManageTab() {
       checkGameweekDrift();
     } catch (err) { toast(err.message, 'error'); }
   });
+  $('#predicted-apply').addEventListener('click', () => importPredicted($('#predicted-input').value));
+  $('#predicted-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    importPredicted(await file.text());
+  });
+  $('#predicted-clear').addEventListener('click', () => {
+    app.state = { ...app.state, predicted: {}, predictedMeta: null };
+    app.lineup = null; app.planResult = null;
+    $('#predicted-result').replaceChildren();
+    toast('Imported points cleared. Projections fall back to FPL\'s own.', 'good');
+    renderAll();
+  });
+  $('#predicted-fallback').addEventListener('change', (e) => {
+    app.state = { ...app.state, predictedFallback: e.target.value };
+    app.lineup = null; app.planResult = null;
+    renderAll();
+  });
   $('#team-news-apply').addEventListener('click', applyTeamNewsFromBox);
   $('#team-news-clear').addEventListener('click', () => {
     app.state = { ...app.state, overrides: {} };
@@ -1539,6 +1583,86 @@ function applyTeamNewsFromBox() {
   renderAll();
 }
 
+/**
+ * Read a pasted or uploaded predictions table and match it to the squad plus
+ * the transfer shortlist. Matching against only the players in question keeps a
+ * surname sufficient, and every row is accounted for in the report.
+ */
+function importPredicted(text) {
+  const box = $('#predicted-result');
+  box.replaceChildren();
+  if (!String(text).trim()) return;
+
+  const { entries, gameweeks, problems } = parsePredictedPoints(text);
+  if (problems.length && entries.length === 0) {
+    for (const problem of problems) box.append(note(problem));
+    toast('Could not read that table.', 'error');
+    return;
+  }
+  if (!hasSquad()) { toast('Add your squad first.', 'error'); return; }
+
+  const pool = [
+    ...squadPlayers(app.state, app.snapshot),
+    ...app.targets.map((id) => app.snapshot.player(id)).filter(Boolean)
+      .map((p) => ({ ...p, team: app.snapshot.team(p.teamId) })),
+  ];
+  const { points, matched, unmatched, ambiguous } = matchPredictions(pool, entries);
+
+  app.state = {
+    ...app.state,
+    predicted: { ...(app.state.predicted ?? {}), ...points },
+    predictedMeta: { at: new Date().toISOString(), gameweeks, rows: entries.length },
+  };
+  app.lineup = null;
+  app.planResult = null;
+
+  const lines = [`Read ${entries.length} rows covering `
+    + `GW${gameweeks[0]}${gameweeks.length > 1 ? `–GW${gameweeks.at(-1)}` : ''}.`];
+  lines.push(`Matched ${matched.length} to your squad and shortlist.`);
+  for (const u of unmatched.slice(0, 8)) lines.push(`· not in your squad: ${u.name}`);
+  if (unmatched.length > 8) lines.push(`· and ${unmatched.length - 8} more not in your squad`);
+  for (const a of ambiguous) lines.push(`? ambiguous: ${a.name} → ${a.candidates.map((p) => p.label).join(' / ')}`);
+  for (const p of problems) lines.push(`✗ ${p}`);
+
+  const report = document.createElement('pre');
+  report.className = 'hint';
+  report.textContent = lines.join('\n');
+  box.append(report);
+
+  toast(`Imported predicted points for ${matched.length} players.`, 'good');
+  renderAll();
+}
+
+/** How much of the horizon the imported table actually covers. */
+function renderPredictedStatus() {
+  const select = $('#predicted-fallback');
+  if (select) select.value = app.state.predictedFallback ?? 'ep';
+
+  const box = $('#projection-source');
+  if (!box) return;
+  box.replaceChildren();
+  if (!hasSquad()) return;
+
+  const gameweeks = app.snapshot.horizon(app.state.gameweek, 6);
+  const ids = app.state.picks.map((p) => p.playerId);
+  const stats = coverage(app.state.predicted ?? {}, ids, gameweeks);
+  const fallbackName = (app.state.predictedFallback ?? 'ep') === 'ep'
+    ? "FPL's own ep_next" : 'the built-in model';
+
+  if (stats.have === 0) {
+    box.append(note(`No predicted points imported, so projections come from ${fallbackName}. `
+      + 'Import a table on the Manage tab to use published predictions instead.'));
+    return;
+  }
+  const covered = [...new Set(gameweeks.filter((gw) =>
+    ids.some((id) => app.state.predicted?.[id]?.[gw] != null)))];
+  box.append(note(stats.complete
+    ? `Projections use imported predicted points for GW${covered[0]}–GW${covered.at(-1)}.`
+    : `Projections use imported predicted points where available `
+      + `(${stats.have} of ${stats.wanted} player-gameweeks, GW${covered[0]}–GW${covered.at(-1)}); `
+      + `the rest fall back to ${fallbackName}.`));
+}
+
 function renderManageTab() {
   $('#set-gw').value = app.state.gameweek;
 
@@ -1552,6 +1676,7 @@ function renderManageTab() {
     }
   }
 
+  renderPredictedStatus();
   renderOverrides();
 
   const log = $('#log');

@@ -304,6 +304,44 @@ The overrides feed straight into the XI, the captaincy and the transfer planner.
 Re-run the refresh close to the deadline: FPL updates its injury news through
 Friday press conferences, and prices move daily.
 
+## Where projections come from
+
+Projections read **imported predicted points** first — figures published by
+someone whose model you trust more than this one. Paste the table into the
+*Manage* tab, or import a file:
+
+```
+Player        Team  Pos  Price  GW7  GW8  GW9
+Haaland       MCI   FWD  15.5   7.4  6.1  8.0
+B.Fernandes   MUN   MID  12.0   5.2  4.8  5.5
+```
+
+Tab-separated (what you get from selecting a table in a browser and copying),
+CSV, or JSON. Column headers are detected rather than assumed, so `GW7`,
+`Gameweek 7`, `Week 7` and plain `7` all work, and a stray `£` or `pts` around a
+number does not matter. Names are matched against your squad and shortlist only,
+which makes a surname enough; anything unmatched or ambiguous is listed rather
+than guessed at.
+
+Those numbers are used **exactly as published**, for the upcoming gameweek and
+for every gameweek of the transfer horizon they cover. They drive the XI, the
+captaincy, and every transfer plan.
+
+A gameweek the table does not cover falls back — to FPL's own `ep_next` by
+default, or to the built-in model if you prefer, selectable on the same tab. The
+*Squad* tab says which is in use and how much of the horizon is covered:
+
+> Projections use imported predicted points where available (68 of 90
+> player-gameweeks, GW7–GW9); the rest fall back to FPL's own ep_next.
+
+A blank gameweek still scores nothing, whatever the table says: whoever
+published it may not have known the fixture had gone.
+
+## How the built-in model works
+
+The model below is now a fallback rather than the default. It still runs when
+you select it, and it is what fills any gameweek your imported table misses.
+
 ## How projections are built
 
 Each player's gameweek is priced one 2026/27 scoring rule at a time
@@ -394,7 +432,7 @@ An honest ranking of what this model is still missing, worst first.
 node --test 'fpl/tests/*.test.mjs'
 ```
 
-112 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
+125 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
 squad legality, the XI optimiser, chip behaviour, the recent-role model, team-news
 parsing, protected players, and the transfer planner
 (including that it refuses unaffordable moves, respects the club limit, and takes
@@ -412,6 +450,7 @@ fpl/
   js/xp.js          expected-points model
   js/lineup.js      XI, bench order, captain and vice
   js/live.js        scoring a gameweek in progress against the submitted side
+  js/predicted.js   importing predicted points published elsewhere
   js/squad.js       squad state, transfers, budget, chips
   js/transfers.js   transfer planner
   js/roster.js      resolves a squad written by name into player ids

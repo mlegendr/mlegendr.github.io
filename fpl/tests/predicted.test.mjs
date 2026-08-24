@@ -1,0 +1,170 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { buildSnapshot, legalSquadSpecs } from './fixtures.mjs';
+import { MID, FWD } from '../js/rules.js';
+import { parsePredictedPoints, matchPredictions, coverage } from '../js/predicted.js';
+import { expectedPoints } from '../js/xp.js';
+
+const TABLE_TSV = [
+  'Player\tTeam\tPos\tPrice\tGW7\tGW8\tGW9',
+  'Haaland\tMCI\tFWD\t15.5\t7.4\t6.1\t8.0',
+  'B.Fernandes\tMUN\tMID\t12.0\t5.2\t4.8\t5.5',
+  'Gabriel\tARS\tDEF\t8.0\t4.1\t3.9\t4.4',
+].join('\n');
+
+test('a table copied out of a browser is read as tab-separated', () => {
+  const { entries, gameweeks, problems } = parsePredictedPoints(TABLE_TSV);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(gameweeks, [7, 8, 9]);
+  assert.equal(entries.length, 3);
+  assert.deepEqual(entries[0], {
+    name: 'Haaland', team: 'MCI', position: 'FWD', price: '15.5',
+    points: { 7: 7.4, 8: 6.1, 9: 8.0 },
+  });
+});
+
+test('CSV works too, including a comma inside a quoted name', () => {
+  const csv = 'Player,Team,GW7,GW8\n"Silva, Bernardo",MCI,4.5,4.2\nHaaland,MCI,7.4,6.1';
+  const { entries, problems } = parsePredictedPoints(csv);
+  assert.deepEqual(problems, []);
+  assert.equal(entries[0].name, 'Silva, Bernardo');
+  assert.deepEqual(entries[0].points, { 7: 4.5, 8: 4.2 });
+});
+
+test('gameweek headers are recognised however they are written', () => {
+  const variants = 'Player\tGameweek 7\tgw8\tWeek 9\t10\nHaaland\t1\t2\t3\t4';
+  const { gameweeks, entries } = parsePredictedPoints(variants);
+  assert.deepEqual(gameweeks, [7, 8, 9, 10]);
+  assert.deepEqual(entries[0].points, { 7: 1, 8: 2, 9: 3, 10: 4 });
+});
+
+test('a currency symbol or stray text around a number does not break it', () => {
+  const messy = 'Player,Price,GW7\nHaaland,£15.5m,7.4 pts';
+  const { entries } = parsePredictedPoints(messy);
+  assert.equal(entries[0].points[7], 7.4);
+});
+
+test('a table with no player or gameweek column says so plainly', () => {
+  const noName = parsePredictedPoints('Foo\tBar\nx\ty');
+  assert.match(noName.problems[0], /No player column found/);
+
+  const noGameweeks = parsePredictedPoints('Player\tTeam\nHaaland\tMCI');
+  assert.match(noGameweeks.problems[0], /No gameweek columns found/);
+});
+
+test('JSON is accepted as well', () => {
+  const json = JSON.stringify([
+    { name: 'Haaland', team: 'MCI', points: { GW7: 7.4, GW8: 6.1 } },
+    { name: 'Gabriel', team: 'ARS', points: { GW7: 4.1, GW8: 3.9 } },
+  ]);
+  const { entries, gameweeks } = parsePredictedPoints(json);
+  assert.deepEqual(gameweeks, [7, 8]);
+  assert.equal(entries[0].points[7], 7.4);
+});
+
+// ── Matching to the squad ──────────────────────────────────────────────────
+
+function squadSnapshot() {
+  const specs = legalSquadSpecs({
+    8: { name: 'Haaland' }, 9: { name: 'B.Fernandes' }, 3: { name: 'Gabriel' },
+  });
+  const snapshot = buildSnapshot({ playerSpecs: specs });
+  for (const spec of specs) {
+    const player = snapshot.player(spec.id);
+    player.fullName = spec.name ?? player.name;
+    player.team = snapshot.team(player.teamId);
+  }
+  return snapshot;
+}
+
+test('rows are matched to the squad and unmatched ones reported', () => {
+  const snapshot = squadSnapshot();
+  const players = [3, 8, 9].map((id) => snapshot.player(id));
+  const { entries } = parsePredictedPoints(TABLE_TSV);
+  const { points, matched, unmatched } = matchPredictions(players, entries);
+
+  assert.equal(matched.length, 3);
+  assert.deepEqual(unmatched, []);
+  assert.equal(points[8][7], 7.4, 'Haaland');
+  assert.equal(points[9][8], 4.8, 'B.Fernandes');
+});
+
+test('a player not asked about is reported rather than forced onto someone', () => {
+  const snapshot = squadSnapshot();
+  const players = [8].map((id) => snapshot.player(id));   // only Haaland
+  const { entries } = parsePredictedPoints(TABLE_TSV);
+  const { matched, unmatched } = matchPredictions(players, entries);
+  assert.equal(matched.length, 1);
+  assert.equal(unmatched.length, 2);
+});
+
+test('one row cannot claim two players', () => {
+  const snapshot = squadSnapshot();
+  const players = [3, 8, 9].map((id) => snapshot.player(id));
+  const doubled = parsePredictedPoints(
+    'Player\tGW7\nHaaland\t7.4\nHaaland\t9.9').entries;
+  const { matched, unmatched } = matchPredictions(players, doubled);
+  assert.equal(matched.length, 1);
+  assert.equal(unmatched.length, 1, 'the second row has nobody left to match');
+});
+
+test('coverage reports exactly what is missing', () => {
+  const points = { 1: { 7: 5, 8: 4 }, 2: { 7: 3 } };
+  const result = coverage(points, [1, 2], [7, 8]);
+  assert.equal(result.have, 3);
+  assert.equal(result.wanted, 4);
+  assert.equal(result.complete, false);
+  assert.deepEqual(result.missing, [{ playerId: 2, gameweek: 8 }]);
+
+  assert.equal(coverage(points, [1], [7, 8]).complete, true);
+});
+
+// ── Feeding the projections ────────────────────────────────────────────────
+
+test('imported predictions are used verbatim, for every gameweek', () => {
+  const snapshot = buildSnapshot({
+    playerSpecs: [{ id: 1, position: FWD, team: 1, xG90: 0.9, xA90: 0.4, epNext: 2.0 }],
+  });
+  const predicted = { 1: { 1: 7.4, 2: 6.1 } };
+
+  for (const [gameweek, expected] of [[1, 7.4], [2, 6.1]]) {
+    const result = expectedPoints(snapshot, snapshot.player(1), gameweek, { predicted });
+    assert.equal(result.total, expected, `gameweek ${gameweek} should be used as published`);
+    assert.equal(result.source, 'predicted');
+  }
+});
+
+test('a gameweek with no published number falls back rather than scoring zero', () => {
+  const snapshot = buildSnapshot({
+    playerSpecs: [{ id: 1, position: FWD, team: 1, xG90: 0.9, xA90: 0.4, epNext: 5.0 }],
+  });
+  const result = expectedPoints(snapshot, snapshot.player(1), 3, { predicted: { 1: { 1: 7.4 } } });
+  assert.equal(result.source, 'ep');
+  assert.equal(result.total, 5.0, 'ep_next stands in for the gameweek not covered');
+});
+
+test('a blank gameweek scores nothing even if the table gives a number', () => {
+  const snapshot = buildSnapshot({
+    playerSpecs: [{ id: 1, position: FWD, team: 1, epNext: 5 }],
+    fixtureSpecs: [{ id: 1, event: 2, team_h: 1, team_a: 2, team_h_difficulty: 3, team_a_difficulty: 3, finished: false }],
+  });
+  const result = expectedPoints(snapshot, snapshot.player(1), 1, { predicted: { 1: { 1: 7.4 } } });
+  assert.equal(result.total, 0);
+  assert.ok(result.blank);
+});
+
+test('the fallback for an uncovered gameweek is selectable', () => {
+  const snapshot = buildSnapshot({
+    playerSpecs: [{ id: 1, position: FWD, team: 1, xG90: 0.6, xA90: 0.2, minutes: 900, epNext: 5.0 }],
+  });
+  const predicted = { 1: { 1: 7.4 } };
+
+  const toEp = expectedPoints(snapshot, snapshot.player(1), 3, { predicted, fallback: 'ep' });
+  assert.equal(toEp.source, 'ep');
+  assert.equal(toEp.total, 5.0);
+
+  const toModel = expectedPoints(snapshot, snapshot.player(1), 3, { predicted, fallback: 'model', epBlend: 0 });
+  assert.equal(toModel.source, 'model');
+  assert.notEqual(toModel.total, 5.0, 'the model works it out rather than echoing ep_next');
+  assert.ok(toModel.total > 0);
+});

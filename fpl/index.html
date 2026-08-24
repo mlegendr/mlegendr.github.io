@@ -85,6 +85,7 @@
           </div>
         </div>
         <p id="chip-note" class="muted small"></p>
+        <div id="projection-source"></div>
         <div id="live-summary" class="summary-row"></div>
         <div id="live-detail"></div>
         <div class="table-scroll">
@@ -224,6 +225,29 @@
       <div id="chips-used" class="pill-row"></div>
       <p class="muted small">The first set expires at the Gameweek 19 deadline; a fresh set
          arrives for Gameweek 20. This tool records what you chose - it never advises a chip.</p>
+    </div>
+
+    <div class="card">
+      <h2>Predicted points</h2>
+      <p class="muted small">Projections come from predicted points you import. Copy the table
+         from wherever you read it — <a href="https://knightmanagers.com/fpl-predicted-points/"
+         target="_blank" rel="noopener">KnightManagers</a>, for instance — and paste it here.
+         One row per player, one column per gameweek.</p>
+      <textarea id="predicted-input" rows="6" placeholder="Player	Team	GW7	GW8	GW9&#10;Haaland	MCI	7.4	6.1	8.0&#10;B.Fernandes	MUN	5.2	4.8	5.5"></textarea>
+      <div class="actions">
+        <button id="predicted-apply" class="primary">Import predicted points</button>
+        <label class="filebutton">Import from file
+          <input type="file" id="predicted-file" accept=".csv,.tsv,.txt,.json" hidden>
+        </label>
+        <button id="predicted-clear" class="ghost">Clear imported points</button>
+        <label class="inline">Fall back to
+          <select id="predicted-fallback">
+            <option value="ep">FPL's ep_next</option>
+            <option value="model">the built-in model</option>
+          </select>
+        </label>
+      </div>
+      <div id="predicted-result"></div>
     </div>
 
     <div class="card">

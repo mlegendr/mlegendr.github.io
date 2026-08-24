@@ -42,6 +42,8 @@ export function emptyState(gameweek = 1) {
     overrides: {},                 // playerId -> { minutes, availability, defconRate }
     protectedIds: [],              // players the planner may never sell
     submissions: {},               // gameweek -> the side actually submitted
+    predicted: {},                 // playerId -> { gameweek: predicted points }
+    predictedFallback: 'ep',       // used for gameweeks the import does not cover
     log: [],
   };
 }

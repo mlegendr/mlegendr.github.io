@@ -16,7 +16,19 @@ import {
 } from './rules.js';
 
 export const DEFAULTS = {
-  /** Weight given to FPL's own `ep_next` for the immediate gameweek only. */
+  /**
+   * Where projections come from.
+   *   'predicted' - imported predicted points, used verbatim, per gameweek.
+   *   'ep'        - FPL's own `ep_next`, verbatim for the upcoming gameweek.
+   *   'model'     - the built-in model, rule by rule.
+   *
+   * 'predicted' falls back to 'ep' for any gameweek it has no number for, so a
+   * table covering four gameweeks does not leave the other two at zero.
+   */
+  source: 'predicted',
+  /** Imported predictions: `{ [playerId]: { [gameweek]: points } }`. */
+  predicted: null,
+  /** Weight given to FPL's own `ep_next` when the built-in model is used. */
   epBlend: 0.35,
   /** Expected minutes assumed for a fit player with no season data yet. */
   minutesPrior: 68,
@@ -46,6 +58,17 @@ export const DEFAULTS = {
    */
   startSmoothing: 0.3,
 };
+
+/**
+ * Relative scale for a fixture harder or easier than the one `ep_next` covers.
+ *
+ * FPL publishes an expected-points figure for the next gameweek only. Later
+ * gameweeks in a transfer horizon have to come from somewhere, so that figure
+ * is carried forward and adjusted for the fixture: the ratio between this
+ * multiplier at the later fixture's difficulty and at the next one's. A blank
+ * scores nothing and a double counts both matches.
+ */
+const POINTS_BY_DIFFICULTY = { 1: 1.25, 2: 1.12, 3: 1.00, 4: 0.90, 5: 0.80 };
 
 /** Expected goals conceded by the team facing a fixture of this difficulty. */
 const CONCEDE_BY_DIFFICULTY = { 1: 0.85, 2: 1.05, 3: 1.30, 4: 1.60, 5: 1.95 };
@@ -426,8 +449,91 @@ function defconPoints(player, profile, defconMult, o) {
  * Expected points for a player in a gameweek, summed over their fixtures.
  * @param {object} opts `{ overrides: Map<playerId, override>, epBlend, teamGamesMap }`
  */
+/**
+ * FPL's own expected points, used as published.
+ *
+ * For the upcoming gameweek the figure is taken verbatim - it already accounts
+ * for availability, form and the fixture, and nothing here second-guesses it.
+ * Later gameweeks carry it forward, scaled only by how their fixture compares
+ * with the one it was published for.
+ */
+export function epExpectedPoints(snapshot, player, gameweek, opts = {}) {
+  const fixtures = snapshot.teamFixtures(player.teamId, gameweek).filter((f) => !f.finished);
+  const base = player.epNext;
+
+  if (base == null) {
+    return { playerId: player.id, gameweek, total: 0, fixtures: [], blank: fixtures.length === 0,
+      double: false, source: 'ep', missing: true };
+  }
+  if (fixtures.length === 0) {
+    return { playerId: player.id, gameweek, total: 0, fixtures: [], blank: true, double: false,
+      source: 'ep', missing: false };
+  }
+
+  const upcoming = snapshot.nextEvent;
+  // The fixture `ep_next` was published against, used as the reference point.
+  const referenceDifficulty = upcoming != null
+    ? (snapshot.teamFixtures(player.teamId, upcoming)[0]?.difficulty ?? 3)
+    : 3;
+  const reference = lookup(POINTS_BY_DIFFICULTY, referenceDifficulty);
+
+  const isUpcoming = gameweek === upcoming;
+  const priced = fixtures.map((f) => {
+    // Verbatim for the gameweek the figure belongs to; scaled for later ones.
+    const scale = isUpcoming ? 1 : lookup(POINTS_BY_DIFFICULTY, f.difficulty) / reference;
+    return { ...f, points: base * scale, scale };
+  });
+
+  return {
+    playerId: player.id,
+    gameweek,
+    total: priced.reduce((a, f) => a + f.points, 0),
+    epNext: base,
+    verbatim: isUpcoming,
+    fixtures: priced,
+    blank: false,
+    double: priced.length > 1,
+    source: 'ep',
+    missing: false,
+  };
+}
+
+/**
+ * A predicted-points figure published elsewhere, used exactly as given.
+ *
+ * A blank still scores nothing: whoever published the table may not have known
+ * the fixture had gone, and a player with no match cannot score.
+ */
+export function predictedExpectedPoints(snapshot, player, gameweek, opts = {}) {
+  const value = opts.predicted?.[player.id]?.[gameweek];
+  if (value == null) return null;
+
+  const fixtures = snapshot.teamFixtures(player.teamId, gameweek).filter((f) => !f.finished);
+  return {
+    playerId: player.id,
+    gameweek,
+    total: fixtures.length === 0 ? 0 : value,
+    predicted: value,
+    fixtures: fixtures.map((f) => ({ ...f, points: value / fixtures.length })),
+    blank: fixtures.length === 0,
+    double: fixtures.length > 1,
+    source: 'predicted',
+  };
+}
+
 export function expectedPoints(snapshot, player, gameweek, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
+
+  if (o.source === 'predicted') {
+    const predicted = predictedExpectedPoints(snapshot, player, gameweek, o);
+    if (predicted) return predicted;
+    // Nothing published for this player and gameweek, so fall back rather than
+    // pretending he will score nothing.
+    if (o.fallback === 'model') return expectedPoints(snapshot, player, gameweek, { ...o, source: 'model' });
+    return epExpectedPoints(snapshot, player, gameweek, o);
+  }
+  if (o.source === 'ep') return epExpectedPoints(snapshot, player, gameweek, o);
+
   const override = o.overrides?.get?.(player.id) ?? o.overrides?.[player.id] ?? null;
   const teamGames = o.teamGamesMap?.get(player.teamId);
   // A finished match cannot earn anything from here, so it contributes nothing
@@ -458,6 +564,7 @@ export function expectedPoints(snapshot, player, gameweek, opts = {}) {
     fixtures: fixtures.map((f, i) => ({ ...f, points: perFixture[i].total, detail: perFixture[i] })),
     blank: fixtures.length === 0,
     double: fixtures.length > 1,
+    source: 'model',
   };
 }
 
