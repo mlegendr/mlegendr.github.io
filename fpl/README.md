@@ -317,11 +317,20 @@ B.Fernandes   MUN   MID  12.0   5.2  4.8  5.5
 ```
 
 Tab-separated (what you get from selecting a table in a browser and copying),
-CSV, or JSON. Column headers are detected rather than assumed, so `GW7`,
-`Gameweek 7`, `Week 7` and plain `7` all work, and a stray `£` or `pts` around a
-number does not matter. Names are matched against your squad and shortlist only,
-which makes a surname enough; anything unmatched or ambiguous is listed rather
-than guessed at.
+CSV, or JSON. Nothing needs tidying first:
+
+- The **header row is found**, not assumed, so a sentence of prose above the
+  table is skipped.
+- **Column headers are detected**: `GW7`, `Gameweek 7`, `Week 7` and plain `7`
+  all work, while a summary column like `8 GW total` is recognised as a total
+  and left out.
+- Prices written `£15.5m` and points written `7.4 pts` read fine.
+- Names are matched against **your squad and shortlist only**, which makes a
+  surname enough, and the club column separates players who share one —
+  `M.Sangaré (BRE)` from `I.Sangaré (NFO)`.
+
+The report says how many of *your* players were matched and names any that were
+not, rather than listing the hundreds of league rows that are not yours.
 
 Those numbers are used **exactly as published**, for the upcoming gameweek and
 for every gameweek of the transfer horizon they cover. They drive the XI, the
@@ -432,7 +441,7 @@ An honest ranking of what this model is still missing, worst first.
 node --test 'fpl/tests/*.test.mjs'
 ```
 
-125 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
+137 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
 squad legality, the XI optimiser, chip behaviour, the recent-role model, team-news
 parsing, protected players, and the transfer planner
 (including that it refuses unaffordable moves, respects the club limit, and takes

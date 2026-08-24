@@ -19,7 +19,8 @@ const REAL_LIKE = [
   { id: 9, name: 'Mbeumo', full: 'Bryan Mbeumo', position: MID, team: 3, price: 80 },
   { id: 10, name: 'Tzolis', full: 'Christos Tzolis', position: MID, team: 2, price: 65 },
   { id: 11, name: 'Groß', full: 'Pascal Groß', position: MID, team: 7, price: 55 },
-  { id: 12, name: 'Sangaré', full: 'Ibrahim Sangaré', position: MID, team: 6, price: 55 },
+  { id: 12, name: 'M.Sangaré', full: 'Mohammed Sangaré', position: MID, team: 14, price: 55 },
+  { id: 18, name: 'I.Sangaré', full: 'Ibrahim Sangaré', position: MID, team: 10, price: 50 },
   { id: 13, name: 'Haaland', full: 'Erling Haaland', position: FWD, team: 8, price: 155 },
   { id: 14, name: 'João Pedro', full: 'João Pedro Junqueira de Jesus', position: FWD, team: 9, price: 75 },
   { id: 15, name: 'Kusi-Asare', full: 'Jonathan Kusi-Asare', position: FWD, team: 13, price: 45 },
@@ -29,7 +30,7 @@ const REAL_LIKE = [
 ];
 
 const SHORTS = { 1: 'TOT', 2: 'ARS', 3: 'MUN', 4: 'HUL', 5: 'COV', 6: 'SUN', 7: 'BHA',
-  8: 'MCI', 9: 'CHE', 10: 'NFO', 11: 'AVL', 12: 'IPS', 13: 'FUL' };
+  8: 'MCI', 9: 'CHE', 10: 'NFO', 11: 'AVL', 12: 'IPS', 13: 'FUL', 14: 'BRE' };
 
 function realLikeSnapshot() {
   const snapshot = buildSnapshot({
@@ -84,7 +85,7 @@ test('every player in the recorded squad resolves', () => {
   assert.equal(byName['B.Fernandes'], 8);
   assert.equal(byName['Tzolis'], 10);
   assert.equal(byName['Kusi-Asare'], 15, 'hyphenated names resolve');
-  assert.equal(byName['Sangaré'], 12);
+  assert.equal(byName['M.Sangaré'], 12, 'the Brentford one, not the Forest one');
   assert.equal(byName['Thomas'], 7, 'the Coventry defender, not Thomas Partey');
 });
 

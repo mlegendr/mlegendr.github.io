@@ -1593,7 +1593,7 @@ function importPredicted(text) {
   box.replaceChildren();
   if (!String(text).trim()) return;
 
-  const { entries, gameweeks, problems } = parsePredictedPoints(text);
+  const { entries, gameweeks, problems, skippedLines } = parsePredictedPoints(text);
   if (problems.length && entries.length === 0) {
     for (const problem of problems) box.append(note(problem));
     toast('Could not read that table.', 'error');
@@ -1606,7 +1606,7 @@ function importPredicted(text) {
     ...app.targets.map((id) => app.snapshot.player(id)).filter(Boolean)
       .map((p) => ({ ...p, team: app.snapshot.team(p.teamId) })),
   ];
-  const { points, matched, unmatched, ambiguous } = matchPredictions(pool, entries);
+  const { points, matched, ambiguous } = matchPredictions(pool, entries);
 
   app.state = {
     ...app.state,
@@ -1616,13 +1616,25 @@ function importPredicted(text) {
   app.lineup = null;
   app.planResult = null;
 
+  // A published table covers the whole league, so the hundreds of rows that are
+  // not your players are not a problem worth listing. What matters is which of
+  // your own players came away without a number.
+  const wanted = pool;
+  const got = new Set(matched.map((m) => m.player.id));
+  const missing = wanted.filter((p) => !got.has(p.id));
+
   const lines = [`Read ${entries.length} rows covering `
-    + `GW${gameweeks[0]}${gameweeks.length > 1 ? `–GW${gameweeks.at(-1)}` : ''}.`];
-  lines.push(`Matched ${matched.length} to your squad and shortlist.`);
-  for (const u of unmatched.slice(0, 8)) lines.push(`· not in your squad: ${u.name}`);
-  if (unmatched.length > 8) lines.push(`· and ${unmatched.length - 8} more not in your squad`);
-  for (const a of ambiguous) lines.push(`? ambiguous: ${a.name} → ${a.candidates.map((p) => p.label).join(' / ')}`);
+    + `GW${gameweeks[0]}${gameweeks.length > 1 ? `–GW${gameweeks.at(-1)}` : ''}`
+    + `${skippedLines ? `, after ${skippedLines} line(s) of heading` : ''}.`];
+  lines.push(`Matched ${matched.length} of your ${wanted.length} squad and shortlist players.`);
+  for (const player of missing) lines.push(`✗ no prediction found for ${player.label}`);
+  for (const a of ambiguous) {
+    lines.push(`? ${a.name} (${a.team ?? '?'}) could be ${a.candidates.map((p) => p.label).join(' or ')}`);
+  }
   for (const p of problems) lines.push(`✗ ${p}`);
+  if (missing.length === 0 && ambiguous.length === 0) {
+    lines.push('Every player accounted for.');
+  }
 
   const report = document.createElement('pre');
   report.className = 'hint';

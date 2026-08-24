@@ -44,12 +44,13 @@ test('a currency symbol or stray text around a number does not break it', () => 
   assert.equal(entries[0].points[7], 7.4);
 });
 
-test('a table with no player or gameweek column says so plainly', () => {
+test('text that is not a predictions table says so plainly', () => {
   const noName = parsePredictedPoints('Foo\tBar\nx\ty');
-  assert.match(noName.problems[0], /No player column found/);
+  assert.match(noName.problems[0], /Could not find a header row/);
 
   const noGameweeks = parsePredictedPoints('Player\tTeam\nHaaland\tMCI');
-  assert.match(noGameweeks.problems[0], /No gameweek columns found/);
+  assert.match(noGameweeks.problems[0], /Could not find a header row/);
+  assert.match(noGameweeks.problems[0], /The text starts: Player/, 'and shows what it saw');
 });
 
 test('JSON is accepted as well', () => {
@@ -167,4 +168,61 @@ test('the fallback for an uncovered gameweek is selectable', () => {
   assert.equal(toModel.source, 'model');
   assert.notEqual(toModel.total, 5.0, 'the model works it out rather than echoing ep_next');
   assert.ok(toModel.total > 0);
+});
+
+// ── The published table's actual shape ─────────────────────────────────────
+
+const REAL_FORMAT = [
+  'FPL predicted points for every player over the next 8 gameweeks, sorted by total.',
+  'Player\tTeam\tPos\tPrice\tGW1\tGW2\tGW3\tGW4\tGW5\tGW6\tGW7\tGW8\t8 GW total',
+  'Haaland\tMCI\tFWD\t£15.5m\t6.6\t6.1\t7.0\t4.8\t7.0\t4.7\t7.2\t6.0\t49.5',
+  'B.Fernandes\tMUN\tMID\t£12.0m\t6.4\t6.4\t5.2\t4.8\t5.6\t5.8\t5.5\t5.9\t45.6',
+  'Fernandes\tTOT\tMID\t£6.0m\t3.1\t3.4\t3.2\t3.4\t3.4\t2.9\t3.8\t2.7\t25.8',
+  'M.Sangaré\tBRE\tMID\t£5.5m\t3.4\t3.2\t3.3\t3.0\t2.9\t2.8\t2.6\t3.2\t24.3',
+  'I.Sangaré\tNFO\tMID\t£5.0m\t2.8\t2.1\t2.6\t2.4\t2.7\t2.4\t2.1\t2.5\t19.6',
+  'J.Timber\tARS\tDEF\t£6.5m\t0.0\t0.0\t0.0\t0.0\t2.9\t3.1\t3.2\t3.3\t12.5',
+].join('\n');
+
+test('a heading above the table is skipped rather than mistaken for it', () => {
+  const { entries, gameweeks, problems, skippedLines } = parsePredictedPoints(REAL_FORMAT);
+  assert.deepEqual(problems, []);
+  assert.equal(skippedLines, 1, 'the sentence above the table');
+  assert.deepEqual(gameweeks, [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(entries.length, 6);
+});
+
+test('a season-total column is not mistaken for a gameweek', () => {
+  const { gameweeks, entries } = parsePredictedPoints(REAL_FORMAT);
+  assert.ok(!gameweeks.includes(49), '"8 GW total" is a summary, not gameweek 8');
+  assert.equal(Object.keys(entries[0].points).length, 8);
+  assert.equal(entries[0].points[8], 6.0, 'and GW8 keeps its own value');
+});
+
+test('prices written as £15.5m do not disturb the reading', () => {
+  const { entries } = parsePredictedPoints(REAL_FORMAT);
+  assert.equal(entries[0].price, '£15.5m');
+  assert.equal(entries[0].points[1], 6.6);
+});
+
+test('a player yet to return reads as zeros then real numbers', () => {
+  const { entries } = parsePredictedPoints(REAL_FORMAT);
+  const timber = entries.find((e) => e.name === 'J.Timber');
+  assert.deepEqual(timber.points, { 1: 0, 2: 0, 3: 0, 4: 0, 5: 2.9, 6: 3.1, 7: 3.2, 8: 3.3 });
+});
+
+test('the club column separates two players who share a surname', () => {
+  const specs = legalSquadSpecs({ 8: { name: 'M.Sangaré', team: 4 }, 9: { name: 'I.Sangaré', team: 5 } });
+  const snapshot = buildSnapshot({ playerSpecs: specs });
+  snapshot.team(4).short = 'BRE';
+  snapshot.team(5).short = 'NFO';
+  for (const spec of specs) {
+    const player = snapshot.player(spec.id);
+    player.fullName = spec.name ?? player.name;
+    player.team = snapshot.team(player.teamId);
+  }
+
+  const { entries } = parsePredictedPoints(REAL_FORMAT);
+  const { points } = matchPredictions([8, 9].map((id) => snapshot.player(id)), entries);
+  assert.equal(points[8][1], 3.4, 'the Brentford one');
+  assert.equal(points[9][1], 2.8, 'the Forest one');
 });

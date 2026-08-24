@@ -3,23 +3,95 @@
   "gameweek": 1,
   "note": "Opening squad. Prices are in tenths of a million and are used both as a resolution tiebreaker and as the purchase price on import.",
   "picks": [
-    { "name": "Kinsky",      "club": "TOT", "position": "GKP", "price": 45 },
-    { "name": "Dubravka",    "club": "TOT", "position": "GKP", "price": 40 },
-
-    { "name": "Gabriel",     "club": "ARS", "position": "DEF", "price": 80 },
-    { "name": "Mosquera",    "club": "ARS", "position": "DEF", "price": 55 },
-    { "name": "Maguire",     "club": "MUN", "position": "DEF", "price": 50 },
-    { "name": "Greaves",     "club": "IPS", "position": "DEF", "price": 40 },
-    { "name": "Thomas",      "club": "COV", "position": "DEF", "price": 40 },
-
-    { "name": "B.Fernandes", "club": "MUN", "position": "MID", "price": 120 },
-    { "name": "Mbeumo",      "club": "MUN", "position": "MID", "price": 80 },
-    { "name": "Tzolis",      "club": "ARS", "position": "MID", "price": 65 },
-    { "name": "Groß",        "club": "BHA", "position": "MID", "price": 55 },
-    { "name": "Sangaré",     "club": "SUN", "position": "MID", "price": 55 },
-
-    { "name": "Haaland",     "club": "MCI", "position": "FWD", "price": 155 },
-    { "name": "João Pedro",  "club": "CHE", "position": "FWD", "price": 75 },
-    { "name": "Kusi-Asare",  "club": "FUL", "position": "FWD", "price": 45 }
+    {
+      "name": "Kinsky",
+      "club": "TOT",
+      "position": "GKP",
+      "price": 45
+    },
+    {
+      "name": "Dubravka",
+      "club": "TOT",
+      "position": "GKP",
+      "price": 40
+    },
+    {
+      "name": "Gabriel",
+      "club": "ARS",
+      "position": "DEF",
+      "price": 80
+    },
+    {
+      "name": "Mosquera",
+      "club": "ARS",
+      "position": "DEF",
+      "price": 55
+    },
+    {
+      "name": "Maguire",
+      "club": "MUN",
+      "position": "DEF",
+      "price": 50
+    },
+    {
+      "name": "Greaves",
+      "club": "IPS",
+      "position": "DEF",
+      "price": 40
+    },
+    {
+      "name": "Thomas",
+      "club": "COV",
+      "position": "DEF",
+      "price": 40
+    },
+    {
+      "name": "B.Fernandes",
+      "club": "MUN",
+      "position": "MID",
+      "price": 120
+    },
+    {
+      "name": "Mbeumo",
+      "club": "MUN",
+      "position": "MID",
+      "price": 80
+    },
+    {
+      "name": "Tzolis",
+      "club": "ARS",
+      "position": "MID",
+      "price": 65
+    },
+    {
+      "name": "Groß",
+      "club": "BHA",
+      "position": "MID",
+      "price": 55
+    },
+    {
+      "name": "M.Sangaré",
+      "club": "BRE",
+      "position": "MID",
+      "price": 55
+    },
+    {
+      "name": "Haaland",
+      "club": "MCI",
+      "position": "FWD",
+      "price": 155
+    },
+    {
+      "name": "João Pedro",
+      "club": "CHE",
+      "position": "FWD",
+      "price": 75
+    },
+    {
+      "name": "Kusi-Asare",
+      "club": "FUL",
+      "position": "FWD",
+      "price": 45
+    }
   ]
 }

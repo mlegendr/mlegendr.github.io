@@ -29,16 +29,38 @@ function gameweekOf(header) {
 
 const isHeader = (cell, list) => list.includes(String(cell).trim().toLowerCase());
 
-/** Split a pasted table into rows of cells, handling tabs, commas and pipes. */
+const DELIMITERS = ['\t', '|', ','];
+
+/**
+ * Find the header row and split the table on the delimiter it uses.
+ *
+ * A copied page usually carries a line or two of prose above the table, so the
+ * header is located by looking for the first row that names a player column and
+ * at least one gameweek - rather than assuming it comes first.
+ *
+ * @returns {{rows:string[][], headerAt:number, delimiter:string, preamble:string[]}|null}
+ */
 export function parseTable(text) {
   const lines = String(text).split('\n').map((l) => l.replace(/\r$/, '')).filter((l) => l.trim());
-  if (lines.length === 0) return [];
+  if (lines.length === 0) return null;
 
-  // Prefer tabs, then pipes, then commas - whichever the header line actually uses.
-  const header = lines[0];
-  const delimiter = header.includes('\t') ? '\t' : header.includes('|') ? '|' : ',';
+  for (let at = 0; at < Math.min(lines.length, 20); at++) {
+    for (const delimiter of DELIMITERS) {
+      const header = splitRow(lines[at], delimiter).map((c) => c.trim());
+      if (header.length < 2) continue;
+      const hasName = header.some((c) => isHeader(c, NAME_HEADERS));
+      const hasGameweek = header.some((c) => gameweekOf(c) != null);
+      if (!hasName || !hasGameweek) continue;
 
-  return lines.map((line) => splitRow(line, delimiter).map((cell) => cell.trim()));
+      return {
+        rows: lines.slice(at).map((line) => splitRow(line, delimiter).map((cell) => cell.trim())),
+        headerAt: at,
+        delimiter,
+        preamble: lines.slice(0, at),
+      };
+    }
+  }
+  return null;
 }
 
 /** Split one row, respecting quotes so a comma inside a name is not a break. */
@@ -67,31 +89,28 @@ export function parsePredictedPoints(text) {
   const trimmed = String(text).trim();
   if (trimmed.startsWith('[') || trimmed.startsWith('{')) return parseJson(trimmed);
 
-  const rows = parseTable(trimmed);
+  const table = parseTable(trimmed);
   const problems = [];
-  if (rows.length < 2) {
-    return { entries: [], gameweeks: [], problems: ['Nothing to read: expected a header row and at least one player.'] };
+  if (!table || table.rows.length < 2) {
+    const firstLine = trimmed.split('\n')[0]?.slice(0, 120) ?? '';
+    return { entries: [], gameweeks: [], problems: [
+      'Could not find a header row naming a player column and at least one gameweek. '
+      + `The text starts: ${firstLine}`] };
   }
 
+  const { rows, preamble } = table;
   const header = rows[0];
   const nameAt = header.findIndex((c) => isHeader(c, NAME_HEADERS));
   const teamAt = header.findIndex((c) => isHeader(c, TEAM_HEADERS));
   const positionAt = header.findIndex((c) => isHeader(c, POSITION_HEADERS));
   const priceAt = header.findIndex((c) => PRICE_HEADERS.some((h) => String(c).trim().toLowerCase().includes(h)));
 
-  if (nameAt === -1) {
-    return { entries: [], gameweeks: [],
-      problems: [`No player column found. The header row reads: ${header.join(' | ')}`] };
-  }
-
+  // "8 GW total" and the like are summaries, not gameweeks, so they fall out
+  // here: a heading only counts if it is nothing but an optional prefix and a
+  // number.
   const gameweekColumns = header
     .map((cell, index) => ({ index, gameweek: gameweekOf(cell) }))
     .filter((c) => c.gameweek != null);
-
-  if (gameweekColumns.length === 0) {
-    return { entries: [], gameweeks: [],
-      problems: [`No gameweek columns found. Expected headers like "GW12". The header row reads: ${header.join(' | ')}`] };
-  }
 
   const entries = [];
   for (const row of rows.slice(1)) {
@@ -117,7 +136,12 @@ export function parsePredictedPoints(text) {
     });
   }
 
-  return { entries, gameweeks: [...new Set(gameweekColumns.map((c) => c.gameweek))].sort((a, b) => a - b), problems };
+  return {
+    entries,
+    gameweeks: [...new Set(gameweekColumns.map((c) => c.gameweek))].sort((a, b) => a - b),
+    problems,
+    skippedLines: preamble.length,
+  };
 }
 
 function parseJson(text) {
