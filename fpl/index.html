@@ -231,7 +231,9 @@
 
     <div class="card">
       <h2>Predicted points</h2>
-      <p class="muted small">Projections come from predicted points you import. Copy the table
+      <p class="muted small">Every projection in the tool comes from these numbers and nothing
+         else — the squad optimiser, the horizon column and the transfer planner alike. A player
+         or gameweek the table does not cover counts as zero. Copy the table
          from wherever you read it — <a href="https://knightmanagers.com/fpl-predicted-points/"
          target="_blank" rel="noopener">KnightManagers</a>, for instance — and paste it here.
          One row per player, one column per gameweek.</p>
@@ -242,12 +244,6 @@
           <input type="file" id="predicted-file" accept=".csv,.tsv,.txt,.json" hidden>
         </label>
         <button id="predicted-clear" class="ghost">Clear imported points</button>
-        <label class="inline">Fall back to
-          <select id="predicted-fallback">
-            <option value="ep">FPL's ep_next</option>
-            <option value="model">the built-in model</option>
-          </select>
-        </label>
       </div>
       <div id="predicted-result"></div>
     </div>

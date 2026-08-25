@@ -339,24 +339,37 @@ CSV, or JSON. Nothing needs tidying first:
 The report says how many of *your* players were matched and names any that were
 not, rather than listing the hundreds of league rows that are not yours.
 
-Those numbers are used **exactly as published**, for the upcoming gameweek and
-for every gameweek of the transfer horizon they cover. They drive the XI, the
-captaincy, and every transfer plan.
+Those numbers are used **exactly as published** and are the only input to any
+projection: the starting XI, the captaincy, the horizon column on the *Squad*
+tab and every transfer plan all come from them and nothing else. Nothing is
+second-guessed — not by FPL's `ep_next`, not by the built-in model, and not
+against the fixture list, since whoever published the table was already pricing
+the fixtures.
 
-A gameweek the table does not cover falls back — to FPL's own `ep_next` by
-default, or to the built-in model if you prefer, selectable on the same tab. The
-*Squad* tab says which is in use and how much of the horizon is covered:
+**The one adjustment is timing.** Points sooner are worth more than points
+later, so gameweek *n* into the horizon counts at 0.92ⁿ: the gameweek being set
+up at full weight, the next at 0.92, then 0.85, 0.78, 0.72. The planner and the
+*Squad* tab's horizon column apply the identical weighting from one shared
+function, so the two figures can never disagree. Hover a value for the plain,
+unweighted total.
 
-> Projections use imported predicted points where available (68 of 90
-> player-gameweeks, GW7–GW9); the rest fall back to FPL's own ep_next.
+**A player or gameweek the table does not cover counts as zero**, and is
+reported rather than filled in from elsewhere — a number quietly supplied by a
+different model would look just like a published one, and the two are not
+comparable:
 
-A blank gameweek still scores nothing, whatever the table says: whoever
-published it may not have known the fixture had gone.
+> Projections come only from your imported predicted points (45 of 75
+> player-gameweeks). Anything missing counts as zero.
+> No figures for GW4, GW5 · 15 players. Import a table covering them, or
+> shorten the horizon on the Transfers tab.
+
+With nothing imported at all, every projection is zero and a banner says so.
 
 ## How the built-in model works
 
-The model below is now a fallback rather than the default. It still runs when
-you select it, and it is what fills any gameweek your imported table misses.
+The model below no longer feeds the app: projections come from your imported
+table alone. It is kept because it is still tested, and it remains available to
+anyone wanting a projection without a published table to hand.
 
 ## How projections are built
 
@@ -448,7 +461,7 @@ An honest ranking of what this model is still missing, worst first.
 node --test 'fpl/tests/*.test.mjs'
 ```
 
-145 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
+148 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
 squad legality, the XI optimiser, chip behaviour, the recent-role model, team-news
 parsing, protected players, and the transfer planner
 (including that it refuses unaffordable moves, respects the club limit, and takes

@@ -18,7 +18,7 @@ import {
   advanceGameweek, squadValue, squadPlayers, sellValue, isPreSeason, freeTransfersAvailable,
   recordSubmission, submissionFor,
 } from './squad.js';
-import { projectSquad, teamGamesPlayed, startProbability, recentRole, explainStartProbability } from './xp.js';
+import { projectSquad, teamGamesPlayed, startProbability, recentRole, explainStartProbability, horizonWeight } from './xp.js';
 import { parsePredictedPoints, matchPredictions, coverage } from './predicted.js';
 import { optimiseLineup, lineupDelta, validateXi } from './lineup.js';
 import { liveScore } from './live.js';
@@ -194,7 +194,6 @@ function projectionOptions() {
   return {
     source: 'predicted',
     predicted: app.state.predicted ?? {},
-    fallback: app.state.predictedFallback ?? 'ep',
     overrides: app.state.overrides,
     teamGamesMap: teamGamesPlayed(app.snapshot),
   };
@@ -375,6 +374,9 @@ function renderSquadTab() {
 
   renderChipSelect();
   $('#horizon-header').textContent = `${DEFAULT_HORIZON} GW`;
+  $('#horizon-header').title = 'Projected points over the next '
+    + `${DEFAULT_HORIZON} gameweeks, weighted towards the nearer ones - the same figure the `
+    + 'transfer planner ranks on. Hover a value for the plain total.';
   const liveGameweek = app.snapshot.currentEvent;
   $('#live-header').textContent = liveGameweek ? `GW${liveGameweek}` : 'Live';
   $('#live-header').title = liveGameweek
@@ -411,7 +413,7 @@ function renderSquadTab() {
       tdNode(liveCell(player)),
       tdNode(startCell(pStart, player)),
       td((projection.byGameweek.get(gameweeks[0]) ?? 0).toFixed(1), 'num'),
-      td(projection.total.toFixed(1), 'num'),
+      tdNode(horizonCell(projection, gameweeks)),
       tdNode(statusCell(status, player)),
     );
     body.append(row);
@@ -525,6 +527,23 @@ function startCell(probability, player) {
     override: app.state.overrides[player.id],
   });
   if (probability < 0.6) span.className = 'news';
+  return span;
+}
+
+/**
+ * The horizon figure, weighted exactly as the transfer planner weights it, so
+ * the two can never disagree. The plain sum is on the tooltip, since that is
+ * the number that means "points over five gameweeks".
+ */
+function horizonCell(projection, gameweeks) {
+  const span = document.createElement('span');
+  span.textContent = projection.weighted.toFixed(1);
+  const decay = PLANNER_DEFAULTS.decay;
+  span.title = `Weighted for how soon each gameweek is: `
+    + gameweeks.map((gw, i) => `GW${gw} ×${horizonWeight(i, decay).toFixed(2)}`).join(', ')
+    + `. Unweighted total ${projection.total.toFixed(1)}.`
+    + (projection.missing ? ` ${projection.missing} gameweek(s) have no imported prediction and count as zero.` : '');
+  if (projection.missing) span.className = 'news';
   return span;
 }
 
@@ -1515,12 +1534,7 @@ function wireManageTab() {
     app.state = { ...app.state, predicted: {}, predictedMeta: null };
     app.lineup = null; app.planResult = null;
     $('#predicted-result').replaceChildren();
-    toast('Imported points cleared. Projections fall back to FPL\'s own.', 'good');
-    renderAll();
-  });
-  $('#predicted-fallback').addEventListener('change', (e) => {
-    app.state = { ...app.state, predictedFallback: e.target.value };
-    app.lineup = null; app.planResult = null;
+    toast('Imported points cleared. Projections are zero until you import again.', 'good');
     renderAll();
   });
   $('#team-news-apply').addEventListener('click', applyTeamNewsFromBox);
@@ -1648,9 +1662,6 @@ function importPredicted(text) {
 
 /** How much of the horizon the imported table actually covers. */
 function renderPredictedStatus() {
-  const select = $('#predicted-fallback');
-  if (select) select.value = app.state.predictedFallback ?? 'ep';
-
   const box = $('#projection-source');
   if (!box) return;
   box.replaceChildren();
@@ -1659,21 +1670,33 @@ function renderPredictedStatus() {
   const gameweeks = app.snapshot.horizon(app.state.gameweek, DEFAULT_HORIZON);
   const ids = app.state.picks.map((p) => p.playerId);
   const stats = coverage(app.state.predicted ?? {}, ids, gameweeks);
-  const fallbackName = (app.state.predictedFallback ?? 'ep') === 'ep'
-    ? "FPL's own ep_next" : 'the built-in model';
 
   if (stats.have === 0) {
-    box.append(note(`No predicted points imported, so projections come from ${fallbackName}. `
-      + 'Import a table on the Manage tab to use published predictions instead.'));
+    banner('No predicted points have been imported, so every projection is zero and the '
+      + 'optimiser has nothing to work with. Paste your predicted-points table on the '
+      + 'Manage tab.', true);
+    box.append(note('No predicted points imported — all projections are zero.'));
     return;
   }
-  const covered = [...new Set(gameweeks.filter((gw) =>
-    ids.some((id) => app.state.predicted?.[id]?.[gw] != null)))];
-  box.append(note(stats.complete
-    ? `Projections use imported predicted points for GW${covered[0]}–GW${covered.at(-1)}.`
-    : `Projections use imported predicted points where available `
-      + `(${stats.have} of ${stats.wanted} player-gameweeks, GW${covered[0]}–GW${covered.at(-1)}); `
-      + `the rest fall back to ${fallbackName}.`));
+
+  if (stats.complete) {
+    box.append(note(`Projections come only from your imported predicted points, `
+      + `covering GW${gameweeks[0]}–GW${gameweeks.at(-1)} for all ${ids.length} squad players, `
+      + 'weighted towards the nearer gameweeks.'));
+    return;
+  }
+
+  // Missing figures count as zero, which quietly shortens the horizon, so name
+  // exactly what is absent rather than leaving it to be inferred.
+  const missingWeeks = [...new Set(stats.missing.map((m) => m.gameweek))].sort((a, b) => a - b);
+  const missingPlayers = [...new Set(stats.missing.map((m) => m.playerId))]
+    .map((id) => app.snapshot.player(id)?.label).filter(Boolean);
+
+  box.append(note(`Projections come only from your imported predicted points `
+    + `(${stats.have} of ${stats.wanted} player-gameweeks). Anything missing counts as zero.`));
+  box.append(note(`No figures for GW${missingWeeks.join(', GW')}`
+    + (missingPlayers.length <= 4 ? ` · ${missingPlayers.join(', ')}` : ` · ${missingPlayers.length} players`)
+    + '. Import a table covering them, or shorten the horizon on the Transfers tab.'));
 }
 
 function renderManageTab() {

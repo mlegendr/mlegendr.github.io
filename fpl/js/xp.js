@@ -22,8 +22,8 @@ export const DEFAULTS = {
    *   'ep'        - FPL's own `ep_next`, verbatim for the upcoming gameweek.
    *   'model'     - the built-in model, rule by rule.
    *
-   * 'predicted' falls back to 'ep' for any gameweek it has no number for, so a
-   * table covering four gameweeks does not leave the other two at zero.
+   * 'predicted' stands alone: a player or gameweek it does not cover scores
+   * nothing and is reported, rather than being filled in from elsewhere.
    */
   source: 'predicted',
   /** Imported predictions: `{ [playerId]: { [gameweek]: points } }`. */
@@ -501,37 +501,48 @@ export function epExpectedPoints(snapshot, player, gameweek, opts = {}) {
 /**
  * A predicted-points figure published elsewhere, used exactly as given.
  *
- * A blank still scores nothing: whoever published the table may not have known
- * the fixture had gone, and a player with no match cannot score.
+ * Nothing is second-guessed: the published number stands whatever the fixture
+ * list says, because whoever published it was already pricing the fixtures. A
+ * player with no number at all scores nothing and is flagged, rather than
+ * having a figure invented for him from some other model.
  */
 export function predictedExpectedPoints(snapshot, player, gameweek, opts = {}) {
   const value = opts.predicted?.[player.id]?.[gameweek];
-  if (value == null) return null;
-
   const fixtures = snapshot.teamFixtures(player.teamId, gameweek).filter((f) => !f.finished);
+
+  if (value == null) {
+    return {
+      playerId: player.id,
+      gameweek,
+      total: 0,
+      fixtures: [],
+      blank: fixtures.length === 0,
+      double: false,
+      source: 'predicted',
+      missing: true,
+    };
+  }
+
   return {
     playerId: player.id,
     gameweek,
-    total: fixtures.length === 0 ? 0 : value,
+    total: value,
     predicted: value,
-    fixtures: fixtures.map((f) => ({ ...f, points: value / fixtures.length })),
+    fixtures: fixtures.map((f) => ({ ...f, points: value / Math.max(1, fixtures.length) })),
     blank: fixtures.length === 0,
     double: fixtures.length > 1,
     source: 'predicted',
+    missing: false,
   };
 }
 
 export function expectedPoints(snapshot, player, gameweek, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
 
-  if (o.source === 'predicted') {
-    const predicted = predictedExpectedPoints(snapshot, player, gameweek, o);
-    if (predicted) return predicted;
-    // Nothing published for this player and gameweek, so fall back rather than
-    // pretending he will score nothing.
-    if (o.fallback === 'model') return expectedPoints(snapshot, player, gameweek, { ...o, source: 'model' });
-    return epExpectedPoints(snapshot, player, gameweek, o);
-  }
+  // Imported predictions are used on their own. There is deliberately no
+  // fallback: a number quietly supplied by a different model would be
+  // indistinguishable from a published one, and the two are not comparable.
+  if (o.source === 'predicted') return predictedExpectedPoints(snapshot, player, gameweek, o);
   if (o.source === 'ep') return epExpectedPoints(snapshot, player, gameweek, o);
 
   const override = o.overrides?.get?.(player.id) ?? o.overrides?.[player.id] ?? null;
@@ -573,19 +584,32 @@ export function expectedPoints(snapshot, player, gameweek, opts = {}) {
  * @returns {Map<playerId, {byGameweek: Map<gw, number>, total:number, detail:Map}>}
  */
 export function projectSquad(snapshot, players, gameweeks, opts = {}) {
+  const o = { ...DEFAULTS, ...opts };
   const teamGamesMap = opts.teamGamesMap ?? teamGamesPlayed(snapshot);
   const out = new Map();
   for (const player of players) {
     const byGameweek = new Map();
     const detail = new Map();
     let total = 0;
-    for (const gw of gameweeks) {
-      const r = expectedPoints(snapshot, player, gw, { ...opts, teamGamesMap });
+    let weighted = 0;
+    let missing = 0;
+    gameweeks.forEach((gw, i) => {
+      const r = expectedPoints(snapshot, player, gw, { ...o, teamGamesMap });
       byGameweek.set(gw, r.total);
       detail.set(gw, r);
       total += r.total;
-    }
-    out.set(player.id, { byGameweek, detail, total });
+      weighted += r.total * horizonWeight(i, o.horizonDecay);
+      if (r.missing) missing++;
+    });
+    out.set(player.id, { byGameweek, detail, total, weighted, missing });
   }
   return out;
+}
+
+/**
+ * How much a gameweek counts, by how far off it is. The nearer one matters
+ * most: it is both more certain and sooner in the bank.
+ */
+export function horizonWeight(index, decay = DEFAULTS.horizonDecay) {
+  return decay ** index;
 }

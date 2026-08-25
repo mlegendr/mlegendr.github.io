@@ -13,7 +13,7 @@
 
 import { MAX_FREE_TRANSFERS, TRANSFER_HIT, CHIPS, POSITIONS, MAX_PER_CLUB, money } from './rules.js';
 import { optimiseLineup } from './lineup.js';
-import { projectSquad, DEFAULTS as XP_DEFAULTS, teamGamesPlayed } from './xp.js';
+import { projectSquad, DEFAULTS as XP_DEFAULTS, teamGamesPlayed, horizonWeight } from './xp.js';
 import { sellValue, isPreSeason } from './squad.js';
 
 /** Gameweeks scored when judging a transfer, counting the one being set up. */
@@ -178,7 +178,7 @@ function scoreSquad(squadPlayers, projections, gameweeks, { chip, decay, unchang
     const roster = i === 0 || !unchangedFor ? squadPlayers : unchangedFor;
     const priced = roster.map((p) => ({ ...p, points: projections.get(p.id)?.byGameweek.get(gw) ?? 0 }));
     const lineup = optimiseLineup(priced, activeChip);
-    const weight = decay ** i;
+    const weight = horizonWeight(i, decay);
     total += lineup.total * weight;
     perGameweek.push({ gameweek: gw, points: lineup.total, weighted: lineup.total * weight, lineup });
   });

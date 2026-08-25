@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { buildSnapshot, legalSquadSpecs } from './fixtures.mjs';
 import { MID, FWD } from '../js/rules.js';
 import { parsePredictedPoints, matchPredictions, coverage } from '../js/predicted.js';
-import { expectedPoints } from '../js/xp.js';
+import { expectedPoints, projectSquad, DEFAULTS as XP_DEFAULTS } from '../js/xp.js';
 
 const TABLE_TSV = [
   'Player\tTeam\tPos\tPrice\tGW7\tGW8\tGW9',
@@ -135,41 +135,96 @@ test('imported predictions are used verbatim, for every gameweek', () => {
   }
 });
 
-test('a gameweek with no published number falls back rather than scoring zero', () => {
+test('a gameweek with no published number scores zero and is flagged', () => {
   const snapshot = buildSnapshot({
     playerSpecs: [{ id: 1, position: FWD, team: 1, xG90: 0.9, xA90: 0.4, epNext: 5.0 }],
   });
   const result = expectedPoints(snapshot, snapshot.player(1), 3, { predicted: { 1: { 1: 7.4 } } });
-  assert.equal(result.source, 'ep');
-  assert.equal(result.total, 5.0, 'ep_next stands in for the gameweek not covered');
+  assert.equal(result.source, 'predicted');
+  assert.equal(result.total, 0, 'nothing published means nothing counted');
+  assert.equal(result.missing, true);
 });
 
-test('a blank gameweek scores nothing even if the table gives a number', () => {
+test('nothing else can supply a number in its place', () => {
+  // This player has strong rates and a healthy ep_next; neither may be used.
+  const snapshot = buildSnapshot({
+    playerSpecs: [{ id: 1, position: FWD, team: 1, xG90: 1.2, xA90: 0.8, minutes: 900, epNext: 8.0 }],
+  });
+  for (const opts of [{}, { fallback: 'ep' }, { fallback: 'model' }, { epBlend: 0.9 }]) {
+    const result = expectedPoints(snapshot, snapshot.player(1), 1, { predicted: {}, ...opts });
+    assert.equal(result.total, 0, `a fallback leaked in with ${JSON.stringify(opts)}`);
+    assert.equal(result.source, 'predicted');
+  }
+});
+
+test('the published number stands even where the fixture list disagrees', () => {
+  // No fixture in gameweek 1 as far as this snapshot knows, but the table gives
+  // a figure - whoever published it was already pricing the fixtures.
   const snapshot = buildSnapshot({
     playerSpecs: [{ id: 1, position: FWD, team: 1, epNext: 5 }],
     fixtureSpecs: [{ id: 1, event: 2, team_h: 1, team_a: 2, team_h_difficulty: 3, team_a_difficulty: 3, finished: false }],
   });
   const result = expectedPoints(snapshot, snapshot.player(1), 1, { predicted: { 1: { 1: 7.4 } } });
-  assert.equal(result.total, 0);
-  assert.ok(result.blank);
+  assert.equal(result.total, 7.4, 'used exactly as given');
+  assert.equal(result.missing, false);
 });
 
-test('the fallback for an uncovered gameweek is selectable', () => {
+test('a double gameweek is whatever the table says, not doubled again', () => {
   const snapshot = buildSnapshot({
-    playerSpecs: [{ id: 1, position: FWD, team: 1, xG90: 0.6, xA90: 0.2, minutes: 900, epNext: 5.0 }],
+    playerSpecs: [{ id: 1, position: FWD, team: 1, epNext: 5 }],
+    fixtureSpecs: [
+      { id: 1, event: 1, team_h: 1, team_a: 2, team_h_difficulty: 3, team_a_difficulty: 3, finished: false },
+      { id: 2, event: 1, team_h: 3, team_a: 1, team_h_difficulty: 3, team_a_difficulty: 3, finished: false },
+    ],
   });
-  const predicted = { 1: { 1: 7.4 } };
-
-  const toEp = expectedPoints(snapshot, snapshot.player(1), 3, { predicted, fallback: 'ep' });
-  assert.equal(toEp.source, 'ep');
-  assert.equal(toEp.total, 5.0);
-
-  const toModel = expectedPoints(snapshot, snapshot.player(1), 3, { predicted, fallback: 'model', epBlend: 0 });
-  assert.equal(toModel.source, 'model');
-  assert.notEqual(toModel.total, 5.0, 'the model works it out rather than echoing ep_next');
-  assert.ok(toModel.total > 0);
+  const result = expectedPoints(snapshot, snapshot.player(1), 1, { predicted: { 1: { 1: 9.0 } } });
+  assert.equal(result.total, 9.0);
+  assert.ok(result.double);
 });
 
+// ── Weighting by distance ──────────────────────────────────────────────────
+
+test('the horizon is weighted towards the nearer gameweeks', () => {
+  const snapshot = buildSnapshot({ playerSpecs: [{ id: 1, position: MID, team: 1 }] });
+  const predicted = { 1: { 1: 4, 2: 4, 3: 4, 4: 4, 5: 4 } };
+  const projections = projectSquad(snapshot, [snapshot.player(1)], [1, 2, 3, 4, 5],
+    { source: 'predicted', predicted });
+
+  const p = projections.get(1);
+  assert.equal(p.total, 20, 'the plain sum is untouched');
+
+  const decay = XP_DEFAULTS.horizonDecay;
+  const expected = [0, 1, 2, 3, 4].reduce((a, i) => a + 4 * decay ** i, 0);
+  assert.ok(Math.abs(p.weighted - expected) < 1e-9);
+  assert.ok(p.weighted < p.total, 'later gameweeks count for less');
+});
+
+test('the same points sooner are worth more than later', () => {
+  const snapshot = buildSnapshot({
+    playerSpecs: [{ id: 1, position: MID, team: 1 }, { id: 2, position: MID, team: 1 }],
+  });
+  const predicted = {
+    1: { 1: 8, 2: 2, 3: 2, 4: 2, 5: 2 },   // front-loaded
+    2: { 1: 2, 2: 2, 3: 2, 4: 2, 5: 8 },   // back-loaded
+  };
+  const projections = projectSquad(snapshot, [snapshot.player(1), snapshot.player(2)],
+    [1, 2, 3, 4, 5], { source: 'predicted', predicted });
+
+  assert.equal(projections.get(1).total, projections.get(2).total, 'identical over the horizon');
+  assert.ok(projections.get(1).weighted > projections.get(2).weighted,
+    'but the immediate one is preferred');
+});
+
+test('gameweeks with no figure are counted and reported', () => {
+  const snapshot = buildSnapshot({ playerSpecs: [{ id: 1, position: MID, team: 1 }] });
+  const projections = projectSquad(snapshot, [snapshot.player(1)], [1, 2, 3],
+    { source: 'predicted', predicted: { 1: { 1: 5 } } });
+  const p = projections.get(1);
+  assert.equal(p.total, 5);
+  assert.equal(p.missing, 2, 'gameweeks 2 and 3 have nothing');
+});
+
+// ── The published table's actual shape ─────────────────────────────────────
 // ── The published table's actual shape ─────────────────────────────────────
 
 const REAL_FORMAT = [
