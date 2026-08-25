@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { buildSnapshot, legalSquadSpecs } from './fixtures.mjs';
 import { MID, FWD, DEF } from '../js/rules.js';
 import { emptyState, initialSquad, declareChip } from '../js/squad.js';
-import { planTransfers, combinations, describe } from '../js/transfers.js';
+import { planTransfers, combinations, describe, PLANNER_DEFAULTS } from '../js/transfers.js';
 
 /** Squad of ordinary players plus a shortlist of named candidates. */
 function setup(candidates, { freeTransfers = 1, squadOverrides = {}, bank = null, gameweek = 2 } = {}) {
@@ -304,4 +304,80 @@ test('a pre-season hold does not offer to roll a transfer that does not exist', 
   assert.equal(result.recommendation.action, 'hold');
   assert.doesNotMatch(result.recommendation.headline, /Roll your transfer/);
   assert.match(result.recommendation.headline, /still free until the Gameweek 1 deadline/);
+});
+
+// ── Defaults ───────────────────────────────────────────────────────────────
+
+test('the defaults are five gameweeks, no value on a banked transfer, no bar', () => {
+  assert.equal(PLANNER_DEFAULTS.horizon, 5);
+  assert.equal(PLANNER_DEFAULTS.freeTransferValue, 0);
+  assert.equal(PLANNER_DEFAULTS.minimumGain, 0);
+});
+
+test('the horizon starts at the gameweek being set up', () => {
+  const { snapshot, state } = setup([], { gameweek: 4 });
+  const result = planTransfers(state, snapshot, [], { source: 'model', epBlend: 0 });
+  assert.deepEqual(result.gameweeks, [4, 5, 6, 7, 8]);
+});
+
+/**
+ * A candidate a shade better than a squad player certain to be in the eleven.
+ * He shares that player's club and price, so the only difference between them
+ * is the margin - not their fixtures.
+ */
+function marginalUpgrade(margin) {
+  // Same club, price, bonus and defensive rate as the man he replaces, so the
+  // margin is the only thing between them.
+  const candidate = { id: 90, name: 'Slightly better', position: MID, team: 2, price: 55,
+    xG90: 0.50 + margin, xA90: 0.30, dc90: 6, bonus: 10, minutes: 900 };
+  return setup([candidate], {
+    squadOverrides: { 8: { xG90: 0.50, xA90: 0.30, price: 55, minutes: 900 } },
+  });
+}
+
+test('a slim but genuine improvement is now recommended', () => {
+  const { snapshot, state } = marginalUpgrade(0.02);
+  const result = planTransfers(state, snapshot, [90], { source: 'model', epBlend: 0, fromGameweek: 1 });
+
+  assert.equal(result.recommendation.action, 'transfer');
+  assert.equal(result.recommendation.plan.transfersIn[0].id, 90);
+  const gain = result.recommendation.plan.netGain;
+  assert.ok(gain > 0 && gain < 0.5,
+    `expected a gain under the old half-point bar, got ${gain.toFixed(3)}`);
+});
+
+test('a move worth nothing at all is still a hold', () => {
+  const { snapshot, state } = marginalUpgrade(0);
+  const result = planTransfers(state, snapshot, [90], { source: 'model', epBlend: 0, fromGameweek: 1 });
+  assert.equal(result.recommendation.action, 'hold');
+  assert.doesNotMatch(result.recommendation.headline, /0\.0-point bar/);
+  assert.match(result.recommendation.headline, /improves on your squad/);
+});
+
+test('a move that makes the squad worse is a hold', () => {
+  const { snapshot, state } = marginalUpgrade(-0.05);
+  const result = planTransfers(state, snapshot, [90], { source: 'model', epBlend: 0, fromGameweek: 1 });
+  assert.equal(result.recommendation.action, 'hold');
+});
+
+test('a bar can still be set, and then it applies', () => {
+  const { snapshot, state } = marginalUpgrade(0.02);
+  const withBar = planTransfers(state, snapshot, [90],
+    { source: 'model', epBlend: 0, fromGameweek: 1, minimumGain: 0.5 });
+  assert.equal(withBar.recommendation.action, 'hold');
+  assert.match(withBar.recommendation.headline, /gains only 0\.\d\d points/,
+    'and says what the move was actually worth');
+});
+
+test('holding no longer earns a bonus for keeping the transfer', () => {
+  const { snapshot, state } = marginalUpgrade(0.02);
+  const opts = { source: 'model', epBlend: 0, fromGameweek: 1 };
+
+  const neutral = planTransfers(state, snapshot, [90], opts);
+  const valued = planTransfers(state, snapshot, [90], { ...opts, freeTransferValue: 0.8 });
+
+  assert.equal(neutral.recommendation.action, 'transfer');
+  assert.equal(valued.recommendation.action, 'hold',
+    'putting a price on the banked transfer would still hold it back');
+  assert.ok(neutral.plans[0].netGain > valued.plans[0].netGain);
 });

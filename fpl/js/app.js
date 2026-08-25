@@ -22,7 +22,7 @@ import { projectSquad, teamGamesPlayed, startProbability, recentRole, explainSta
 import { parsePredictedPoints, matchPredictions, coverage } from './predicted.js';
 import { optimiseLineup, lineupDelta, validateXi } from './lineup.js';
 import { liveScore } from './live.js';
-import { planTransfers, describe, PLANNER_DEFAULTS } from './transfers.js';
+import { planTransfers, describe, PLANNER_DEFAULTS, DEFAULT_HORIZON } from './transfers.js';
 import { resolveSquad, resolveSelections, describeResolution, parseTeamNews, applyTeamNews } from './roster.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -200,7 +200,7 @@ function projectionOptions() {
   };
 }
 
-function project(players, horizon = 6) {
+function project(players, horizon = DEFAULT_HORIZON) {
   const gameweeks = app.snapshot.horizon(app.state.gameweek, horizon);
   return {
     gameweeks,
@@ -374,6 +374,7 @@ function renderSquadTab() {
   if (building) { renderBuilder(); return; }
 
   renderChipSelect();
+  $('#horizon-header').textContent = `${DEFAULT_HORIZON} GW`;
   const liveGameweek = app.snapshot.currentEvent;
   $('#live-header').textContent = liveGameweek ? `GW${liveGameweek}` : 'Live';
   $('#live-header').title = liveGameweek
@@ -382,7 +383,7 @@ function renderSquadTab() {
 
   const players = squadPlayers(app.state, app.snapshot);
   renderLiveSummary(players);
-  const { gameweeks, projections } = project(players, 6);
+  const { gameweeks, projections } = project(players);
   const teamGames = teamGamesPlayed(app.snapshot);
   const body = $('#squad-table tbody');
   body.replaceChildren();
@@ -1655,7 +1656,7 @@ function renderPredictedStatus() {
   box.replaceChildren();
   if (!hasSquad()) return;
 
-  const gameweeks = app.snapshot.horizon(app.state.gameweek, 6);
+  const gameweeks = app.snapshot.horizon(app.state.gameweek, DEFAULT_HORIZON);
   const ids = app.state.picks.map((p) => p.playerId);
   const stats = coverage(app.state.predicted ?? {}, ids, gameweeks);
   const fallbackName = (app.state.predictedFallback ?? 'ep') === 'ep'

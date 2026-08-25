@@ -40,13 +40,14 @@ store it at all, a banner says so rather than letting you work on and lose it.
 
 - **Budget** — your bank plus what each outgoing player actually *sells* for
   (FPL banks half of any price rise, rounded down).
-- **Fixtures** — difficulty over the next 6 gameweeks (configurable), including
+- **Fixtures** — difficulty over the next 5 gameweeks (configurable), including
   blanks and doubles.
 - **Form, minutes and availability** — injuries and doubts scale a projection
   down; a player with no chance of playing projects zero.
 - **Free transfers** — a hit is only recommended when the extra points clear the
-  4-point cost. A banked transfer is given option value (default 0.8 points), so
-  a marginal move is correctly rejected in favour of rolling.
+  4-point cost. A banked transfer is worth nothing by default, so holding is
+  judged purely on the points; set a value if you would rather the planner leant
+  towards rolling.
 - **The pre-season exception** — before the Gameweek 1 deadline the squad can be
   rebuilt as often as you like at no cost, so there is no allowance to spend or
   bank. The counter reads *Unlimited*, no plan carries a hit, and holding is
@@ -57,8 +58,14 @@ store it at all, a banner says so rather than letting you work on and lose it.
 - **Protected players** — anyone you have marked as too important to lose is
   excluded from every plan.
 
-Plans are ranked by net gain against doing nothing. Holding always scores exactly
-zero, so any positive number is a real improvement.
+Plans are ranked by net gain against doing nothing over the next **five**
+gameweeks, counting the one being set up. Holding always scores exactly zero, so
+any positive number is a real improvement — and any improvement is recommended:
+there is no minimum it has to clear. The ranked list below the recommendation is
+what tells you whether a slim gain is worth the transfer.
+
+The horizon, the number of hits to consider, and the value of a banked transfer
+are all adjustable on the *Transfers* tab.
 
 ### Protecting players
 
@@ -441,7 +448,7 @@ An honest ranking of what this model is still missing, worst first.
 node --test 'fpl/tests/*.test.mjs'
 ```
 
-137 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
+145 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
 squad legality, the XI optimiser, chip behaviour, the recent-role model, team-news
 parsing, protected players, and the transfer planner
 (including that it refuses unaffordable moves, respects the club limit, and takes

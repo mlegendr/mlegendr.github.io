@@ -94,7 +94,7 @@
               <tr>
                 <th>Player</th><th>Pos</th><th>Club</th>
                 <th class="num">Price</th><th class="num">Sell</th>
-                <th>Next 6</th><th class="num" id="live-header">Live</th><th class="num">Start</th><th class="num">Next GW</th><th class="num">6 GW</th><th>Status &amp; news</th>
+                <th>Next 6</th><th class="num" id="live-header">Live</th><th class="num">Start</th><th class="num">Next GW</th><th class="num" id="horizon-header">5 GW</th><th>Status &amp; news</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -173,8 +173,10 @@
       <div class="controls">
         <label>Horizon
           <select id="opt-horizon">
+            <option value="1">This gameweek only</option>
             <option value="3">3 gameweeks</option>
-            <option value="6" selected>6 gameweeks</option>
+            <option value="5" selected>5 gameweeks</option>
+            <option value="6">6 gameweeks</option>
             <option value="8">8 gameweeks</option>
           </select>
         </label>
@@ -187,7 +189,7 @@
           </select>
         </label>
         <label>Value of a banked transfer
-          <input type="number" id="opt-ftvalue" min="0" max="3" step="0.1" value="0.8">
+          <input type="number" id="opt-ftvalue" min="0" max="3" step="0.1" value="0">
         </label>
         <button id="plan-run" class="primary">Suggest transfer strategy</button>
       </div>

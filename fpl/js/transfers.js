@@ -16,16 +16,27 @@ import { optimiseLineup } from './lineup.js';
 import { projectSquad, DEFAULTS as XP_DEFAULTS, teamGamesPlayed } from './xp.js';
 import { sellValue, isPreSeason } from './squad.js';
 
+/** Gameweeks scored when judging a transfer, counting the one being set up. */
+export const DEFAULT_HORIZON = 5;
+
 export const PLANNER_DEFAULTS = {
-  horizon: 6,
+  horizon: DEFAULT_HORIZON,
   /** Extra transfers beyond the free allocation the planner may consider. */
   maxHits: 2,
-  /** A banked free transfer has option value; this is what one is worth. */
-  freeTransferValue: 0.8,
+  /**
+   * What a banked free transfer is worth. Zero by default: a transfer kept for
+   * later has no value the projections can see, so holding is judged purely on
+   * the points.
+   */
+  freeTransferValue: 0,
   /** Later gameweeks are discounted when comparing plans. */
   decay: XP_DEFAULTS.horizonDecay,
-  /** Ignore plans that gain less than this, and roll the transfer instead. */
-  minimumGain: 0.5,
+  /**
+   * How much a plan must gain to be recommended. Zero means any genuine
+   * improvement qualifies; the ranked list below the recommendation is there
+   * to judge whether a slim one is worth making.
+   */
+  minimumGain: 0,
   /** Squad players the planner may never sell, however good the move. */
   protectedIds: [],
 };
@@ -36,6 +47,9 @@ export const PLANNER_DEFAULTS = {
  * @param {number[]} candidateIds shortlist of incoming targets
  * @param {object} options see PLANNER_DEFAULTS
  */
+/** Below this a difference is floating-point noise rather than an improvement. */
+const NEGLIGIBLE = 1e-6;
+
 export function planTransfers(state, snapshot, candidateIds, options = {}) {
   const o = { ...PLANNER_DEFAULTS, ...options };
   const chip = options.chip ?? state.activeChip ?? 'none';
@@ -209,17 +223,24 @@ function recommend(best, plans, o, ctx) {
     return `Roll your transfer. ${detail}`;
   };
 
+  const bar = o.minimumGain > NEGLIGIBLE
+    ? `clears the ${o.minimumGain.toFixed(1)}-point bar over ${ctx.gameweeks.length} gameweeks`
+    : `improves on your squad over ${ctx.gameweeks.length} gameweeks`;
+
   if (!best || best.transfers === 0) {
     return {
       action: 'hold',
-      headline: holdReason(`No shortlisted move clears the ${o.minimumGain.toFixed(1)}-point bar over ${ctx.gameweeks.length} gameweeks.`),
+      headline: holdReason(`No shortlisted move ${bar}.`),
       plan: best ?? null,
     };
   }
-  if (best.netGain < o.minimumGain) {
+  // Strictly better, so a move worth nothing is not dressed up as a gain.
+  if (best.netGain <= Math.max(o.minimumGain, NEGLIGIBLE)) {
     return {
       action: 'hold',
-      headline: holdReason(`The best shortlisted move gains only ${best.netGain.toFixed(1)} points over ${ctx.gameweeks.length} gameweeks.`),
+      headline: holdReason(best.netGain > 0
+        ? `The best shortlisted move gains only ${best.netGain.toFixed(2)} points over ${ctx.gameweeks.length} gameweeks.`
+        : `No shortlisted move ${bar}.`),
       plan: best,
     };
   }
