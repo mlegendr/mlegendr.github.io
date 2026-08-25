@@ -58,7 +58,17 @@ store it at all, a banner says so rather than letting you work on and lose it.
 - **Protected players** — anyone you have marked as too important to lose is
   excluded from every plan.
 
-Plans are ranked by net gain against doing nothing over the next **five**
+A plan is scored by **simulating the optimised eleven** in each gameweek, before
+and after the move, and taking the difference — not by comparing the incoming
+and outgoing players' points. That matters when a move brings in someone who
+will sit on the bench: his points never reach the eleven, so he neither helps
+nor hurts, and the gain from the rest of the move stands on its own. It is
+settled gameweek by gameweek, so a player benched in one week and starting in
+another counts only in the weeks he plays. The captaincy is included, since an
+incoming player good enough to take the armband is worth more than his own
+points alone.
+
+Plans are ranked by that net gain against doing nothing over the next **five**
 gameweeks, counting the one being set up. Holding always scores exactly zero, so
 any positive number is a real improvement — and any improvement is recommended:
 there is no minimum it has to clear. The ranked list below the recommendation is
@@ -461,7 +471,7 @@ An honest ranking of what this model is still missing, worst first.
 node --test 'fpl/tests/*.test.mjs'
 ```
 
-148 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
+151 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
 squad legality, the XI optimiser, chip behaviour, the recent-role model, team-news
 parsing, protected players, and the transfer planner
 (including that it refuses unaffordable moves, respects the club limit, and takes

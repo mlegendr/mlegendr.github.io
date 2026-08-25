@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSnapshot, legalSquadSpecs } from './fixtures.mjs';
-import { MID, FWD, DEF } from '../js/rules.js';
+import { GKP, MID, FWD, DEF } from '../js/rules.js';
+import { horizonWeight, DEFAULTS as XP_DEFAULTS } from '../js/xp.js';
 import { emptyState, initialSquad, declareChip } from '../js/squad.js';
 import { planTransfers, combinations, describe, PLANNER_DEFAULTS } from '../js/transfers.js';
 
@@ -380,4 +381,95 @@ test('holding no longer earns a bonus for keeping the transfer', () => {
   assert.equal(valued.recommendation.action, 'hold',
     'putting a price on the banked transfer would still hold it back');
   assert.ok(neutral.plans[0].netGain > valued.plans[0].netGain);
+});
+
+// ── Plans are scored on the eleven, not the fifteen ────────────────────────
+
+/**
+ * A squad with points set player by player, plus two candidates. Everyone is
+ * on a club of his own so nothing but the points distinguishes them.
+ */
+function pointsScenario(points, weekly = null) {
+  const spec = (id, position, team) => ({ id, name: `P${id}`, position, team, price: 50 });
+  const squad = [
+    spec(1, GKP, 1), spec(2, GKP, 2),
+    spec(3, DEF, 3), spec(4, DEF, 4), spec(5, DEF, 5), spec(6, DEF, 6), spec(7, DEF, 7),
+    spec(8, MID, 8), spec(9, MID, 9), spec(10, MID, 10), spec(11, MID, 11), spec(12, MID, 12),
+    spec(13, FWD, 13), spec(14, FWD, 14), spec(15, FWD, 15),
+  ];
+  const candidates = [spec(90, MID, 16), spec(91, MID, 17)];
+  const snapshot = buildSnapshot({ playerSpecs: [...squad, ...candidates], teams: 20 });
+
+  const predicted = {};
+  for (const [id, value] of Object.entries(points)) {
+    predicted[id] = weekly?.[id] ?? { 1: value, 2: value, 3: value, 4: value, 5: value };
+  }
+
+  let state = initialSquad(emptyState(1), squad.map((s) => s.id), snapshot);
+  state = { ...state, freeTransfers: 2 };
+  return { snapshot, state, predicted, squadIds: squad.map((s) => s.id) };
+}
+
+const FLAT = {
+  1: 4.0, 2: 1.0,
+  3: 5.0, 4: 4.5, 5: 4.0, 6: 3.5, 7: 1.0,
+  8: 6.0, 9: 5.0, 10: 4.0, 11: 3.0, 12: 0.5,
+  13: 7.0, 14: 5.0, 15: 1.0,
+  90: 8.0,   // a real upgrade on the midfielder he replaces
+  91: 0.6,   // barely better than the man he replaces, and benched either way
+};
+
+test('a plan is worth the change in the optimised eleven, not in the fifteen', () => {
+  const { snapshot, state, predicted } = pointsScenario(FLAT);
+  const result = planTransfers(state, snapshot, [90, 91],
+    { source: 'predicted', predicted, horizon: 5, fromGameweek: 1 });
+
+  const plan = result.plans.find((p) => p.transfers === 2
+    && p.transfersIn.some((x) => x.id === 90) && p.transfersIn.some((x) => x.id === 91));
+  assert.ok(plan, 'the two-transfer plan should be among those considered');
+
+  const weightSum = [0, 1, 2, 3, 4]
+    .reduce((a, i) => a + horizonWeight(i, XP_DEFAULTS.horizonDecay), 0);
+
+  // Both incoming midfielders replace midfielders, and P91 sits on the bench
+  // before and after, so his points never reach the eleven.
+  const outIds = plan.transfersOut.map((p) => p.id);
+  const naive = (FLAT[90] + FLAT[91] - outIds.reduce((a, id) => a + FLAT[id], 0)) * weightSum;
+
+  assert.ok(Math.abs(plan.netGain - naive) > 1,
+    `scored on the fifteen (${naive.toFixed(2)}) rather than the eleven`);
+  assert.ok(plan.netGain > naive,
+    'and the eleven is worth more here, because the upgrade also takes the armband');
+});
+
+test('a signing who never makes the eleven is worth nothing', () => {
+  // P91 replaces the weakest midfielder and is still too weak to start.
+  const { snapshot, state, predicted } = pointsScenario({ ...FLAT, 91: 0.6 });
+  const result = planTransfers(state, snapshot, [91],
+    { source: 'predicted', predicted, horizon: 5, fromGameweek: 1 });
+
+  const plan = result.plans.find((p) => p.transfers === 1);
+  assert.ok(Math.abs(plan.netGain) < 1e-9,
+    `a bench-to-bench swap should be worth nothing, got ${plan.netGain}`);
+  assert.equal(result.recommendation.action, 'hold');
+});
+
+test('a signing benched some weeks and starting others counts only when he starts', () => {
+  // P91 is poor in gameweeks 1-3 and excellent in 4-5, so he should be worth
+  // exactly what he adds in the two weeks he displaces someone.
+  const weekly = { 91: { 1: 0.5, 2: 0.5, 3: 0.5, 4: 9.0, 5: 9.0 } };
+  const { snapshot, state, predicted } = pointsScenario({ ...FLAT, 91: 0.5 }, weekly);
+  const result = planTransfers(state, snapshot, [91],
+    { source: 'predicted', predicted, horizon: 5, fromGameweek: 1 });
+
+  const plan = result.plans.find((p) => p.transfers === 1);
+  assert.ok(plan.netGain > 0, 'the two strong weeks are worth having');
+
+  // Weeks 1-3 change nothing; weeks 4 and 5 he starts and takes the armband
+  // from the 7.0 forward, so each is worth (9.0 - 3.0) for the place plus
+  // (9.0 - 7.0) for the captaincy.
+  const expected = (6 + 2) * (horizonWeight(3, XP_DEFAULTS.horizonDecay)
+    + horizonWeight(4, XP_DEFAULTS.horizonDecay));
+  assert.ok(Math.abs(plan.netGain - expected) < 1e-6,
+    `expected ${expected.toFixed(3)} from the weeks he starts, got ${plan.netGain.toFixed(3)}`);
 });
