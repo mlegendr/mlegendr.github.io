@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSnapshot, legalSquadSpecs } from './fixtures.mjs';
-import { GKP, MID, FWD, DEF } from '../js/rules.js';
+import { GKP, MID, FWD, DEF, POSITIONS, MAX_PER_CLUB, SQUAD_SIZE } from '../js/rules.js';
 import { horizonWeight, DEFAULTS as XP_DEFAULTS } from '../js/xp.js';
 import { emptyState, initialSquad, declareChip } from '../js/squad.js';
 import { planTransfers, combinations, describe, PLANNER_DEFAULTS } from '../js/transfers.js';
@@ -472,4 +472,86 @@ test('a signing benched some weeks and starting others counts only when he start
     + horizonWeight(4, XP_DEFAULTS.horizonDecay));
   assert.ok(Math.abs(plan.netGain - expected) < 1e-6,
     `expected ${expected.toFixed(3)} from the weeks he starts, got ${plan.netGain.toFixed(3)}`);
+});
+
+// ── Every plan offered must be a legal squad ───────────────────────────────
+
+test('no plan the planner offers breaks any squad rule', () => {
+  // Loaded against the rules on purpose: three players already from club 1, an
+  // empty bank, five free transfers, and candidates that each break something.
+  const spec = (id, position, team, price) => ({ id, name: `P${id}`, position, team, price });
+  const squad = [
+    spec(1, GKP, 1, 45), spec(2, GKP, 2, 40),
+    spec(3, DEF, 1, 50), spec(4, DEF, 1, 50), spec(5, DEF, 3, 50), spec(6, DEF, 4, 50), spec(7, DEF, 5, 50),
+    spec(8, MID, 6, 50), spec(9, MID, 7, 50), spec(10, MID, 8, 50), spec(11, MID, 9, 50), spec(12, MID, 10, 50),
+    spec(13, FWD, 11, 60), spec(14, FWD, 12, 60), spec(15, FWD, 13, 60),
+  ];
+  const candidates = [
+    spec(90, DEF, 1, 50),     // would be a fourth from club 1
+    spec(91, FWD, 14, 300),   // far beyond the bank
+    spec(92, MID, 15, 50),
+    spec(93, DEF, 16, 50),
+    spec(94, GKP, 17, 50),
+  ];
+  const snapshot = buildSnapshot({ playerSpecs: [...squad, ...candidates], teams: 20 });
+
+  // Every candidate looks irresistible, so only the rules can stop them.
+  const predicted = {};
+  for (const p of squad) predicted[p.id] = { 1: 9, 2: 9, 3: 9, 4: 9, 5: 9 };
+  for (const p of candidates) predicted[p.id] = { 1: 20, 2: 20, 3: 20, 4: 20, 5: 20 };
+
+  let state = initialSquad(emptyState(2), squad.map((s) => s.id), snapshot);
+  state = { ...state, freeTransfers: 5, bank: 0 };
+
+  const result = planTransfers(state, snapshot, candidates.map((c) => c.id),
+    { source: 'predicted', predicted, horizon: 5, maxHits: 3 });
+
+  assert.ok(result.plans.length > 1, 'there should be something to check');
+
+  for (const plan of result.plans) {
+    const out = new Set(plan.transfersOut.map((p) => p.id));
+    const next = [...squad.filter((p) => !out.has(p.id)), ...plan.transfersIn];
+    const move = `${plan.transfersOut.map((p) => p.name).join(',') || 'none'} → ${plan.transfersIn.map((p) => p.name).join(',') || 'none'}`;
+
+    assert.equal(next.length, SQUAD_SIZE, `${move}: squad is not fifteen`);
+    assert.equal(new Set(next.map((p) => p.id)).size, SQUAD_SIZE, `${move}: a duplicate player`);
+
+    const counts = {};
+    for (const p of next) counts[p.position] = (counts[p.position] ?? 0) + 1;
+    for (const meta of Object.values(POSITIONS)) {
+      assert.equal(counts[meta.id] ?? 0, meta.squad, `${move}: ${meta.short} count is wrong`);
+    }
+
+    const clubs = {};
+    for (const p of next) {
+      const club = p.team ?? p.teamId;
+      clubs[club] = (clubs[club] ?? 0) + 1;
+      assert.ok(clubs[club] <= MAX_PER_CLUB, `${move}: ${clubs[club]} players from one club`);
+    }
+
+    assert.ok(plan.bankAfter >= 0, `${move}: leaves the bank at ${plan.bankAfter}`);
+    assert.equal(plan.hits, Math.max(0, plan.transfers - 5) * 4, `${move}: hit is wrong`);
+  }
+
+  const signed = new Set(result.plans.flatMap((p) => p.transfersIn.map((x) => x.id)));
+  assert.ok(!signed.has(91), 'the unaffordable candidate is never signed');
+});
+
+test('the budget uses the selling price, not the market price', () => {
+  const { snapshot, state } = setup([
+    { id: 90, name: 'Costly', position: MID, team: 20, price: 62 },
+  ], { bank: 0 });
+
+  // Squad midfielder 8 was bought at 52 and is now worth 62, so he sells for
+  // 57 - half the rise. That is 5 short of the incoming player's price.
+  snapshot.player(8).price = 62;
+  const short = planTransfers(state, snapshot, [90], { source: 'model', epBlend: 0, fromGameweek: 1 });
+  assert.ok(short.plans.every((p) => !p.transfersIn.some((x) => x.id === 90)),
+    'a move funded by the full rise rather than half of it must not be offered');
+
+  // With the difference in the bank it becomes affordable.
+  const funded = planTransfers({ ...state, bank: 5 }, snapshot, [90],
+    { source: 'model', epBlend: 0, fromGameweek: 1 });
+  assert.ok(funded.plans.some((p) => p.transfersIn.some((x) => x.id === 90)),
+    'and with the shortfall covered it is');
 });

@@ -53,8 +53,13 @@ store it at all, a banner says so rather than letting you work on and lose it.
   bank. The counter reads *Unlimited*, no plan carries a hit, and holding is
   described as keeping the squad rather than rolling a transfer that does not
   exist. The first free transfer is granted on advancing to Gameweek 2.
-- **Legality** — 2/5/5/3 by position and a maximum of 3 players per club are
-  enforced on every candidate plan.
+- **Legality** — every candidate plan must leave a squad that FPL would accept:
+  fifteen players, 2/5/5/3 by position, no more than three from any one club, no
+  duplicates, and a bank that does not go negative. Budget is worked out from
+  what each outgoing player actually **sells** for, which is his purchase price
+  plus half of any rise — not his market price. Illegal combinations are
+  discarded before they are ever scored, so an unaffordable or rule-breaking
+  move cannot appear however good it looks.
 - **Protected players** — anyone you have marked as too important to lose is
   excluded from every plan.
 
@@ -471,7 +476,7 @@ An honest ranking of what this model is still missing, worst first.
 node --test 'fpl/tests/*.test.mjs'
 ```
 
-151 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
+153 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
 squad legality, the XI optimiser, chip behaviour, the recent-role model, team-news
 parsing, protected players, and the transfer planner
 (including that it refuses unaffordable moves, respects the club limit, and takes
