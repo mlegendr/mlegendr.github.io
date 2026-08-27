@@ -67,9 +67,11 @@ A plan is scored by **simulating the optimised eleven** in each gameweek, before
 and after the move, and taking the difference — not by comparing the incoming
 and outgoing players' points. That matters when a move brings in someone who
 will sit on the bench: his points never reach the eleven, so he neither helps
-nor hurts, and the gain from the rest of the move stands on its own. It is
-settled gameweek by gameweek, so a player benched in one week and starting in
-another counts only in the weeks he plays. The captaincy is included, since an
+nor hurts, and the gain from the rest of the move stands on its own. The eleven is solved
+afresh in **every** gameweek of the horizon, not once and carried forward: the
+side, the formation and the captain are all re-chosen against that week's
+figures, so a player benched in one week and starting in another counts only in
+the weeks he plays. The captaincy is included, since an
 incoming player good enough to take the armband is worth more than his own
 points alone.
 
@@ -476,7 +478,7 @@ An honest ranking of what this model is still missing, worst first.
 node --test 'fpl/tests/*.test.mjs'
 ```
 
-153 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
+154 tests cover the scoring rules, the selling-price and free-transfer arithmetic,
 squad legality, the XI optimiser, chip behaviour, the recent-role model, team-news
 parsing, protected players, and the transfer planner
 (including that it refuses unaffordable moves, respects the club limit, and takes

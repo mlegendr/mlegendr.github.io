@@ -555,3 +555,53 @@ test('the budget uses the selling price, not the market price', () => {
   assert.ok(funded.plans.some((p) => p.transfersIn.some((x) => x.id === 90)),
     'and with the shortfall covered it is');
 });
+
+test('the eleven is solved afresh in each gameweek, not once and carried', () => {
+  const spec = (id, position, team) => ({ id, name: `P${id}`, position, team, price: 50 });
+  const squad = [
+    spec(1, GKP, 1), spec(2, GKP, 2),
+    spec(3, DEF, 3), spec(4, DEF, 4), spec(5, DEF, 5), spec(6, DEF, 6), spec(7, DEF, 7),
+    spec(8, MID, 8), spec(9, MID, 9), spec(10, MID, 10), spec(11, MID, 11), spec(12, MID, 12),
+    spec(13, FWD, 13), spec(14, FWD, 14), spec(15, FWD, 15),
+  ];
+  const candidate = spec(90, MID, 16);
+  const snapshot = buildSnapshot({ playerSpecs: [...squad, candidate], teams: 20 });
+
+  // Each defender and midfielder peaks in a different week, so no single
+  // eleven can be right twice, and the signing is useless until gameweek 4.
+  const predicted = {
+    1: { 1: 5, 2: 5, 3: 5, 4: 5, 5: 5 }, 2: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 },
+    3: { 1: 9, 2: 1, 3: 1, 4: 1, 5: 1 }, 4: { 1: 1, 2: 9, 3: 1, 4: 1, 5: 1 },
+    5: { 1: 1, 2: 1, 3: 9, 4: 1, 5: 1 }, 6: { 1: 1, 2: 1, 3: 1, 4: 9, 5: 1 },
+    7: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 9 },
+    8: { 1: 8, 2: 2, 3: 2, 4: 2, 5: 2 }, 9: { 1: 2, 2: 8, 3: 2, 4: 2, 5: 2 },
+    10: { 1: 2, 2: 2, 3: 8, 4: 2, 5: 2 }, 11: { 1: 2, 2: 2, 3: 2, 4: 8, 5: 2 },
+    12: { 1: 2, 2: 2, 3: 2, 4: 2, 5: 8 },
+    13: { 1: 7, 2: 3, 3: 7, 4: 3, 5: 7 }, 14: { 1: 3, 2: 7, 3: 3, 4: 7, 5: 3 },
+    15: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 },
+    90: { 1: 0.5, 2: 0.5, 3: 0.5, 4: 12, 5: 12 },
+  };
+
+  let state = initialSquad(emptyState(1), squad.map((s) => s.id), snapshot);
+  state = { ...state, freeTransfers: 1 };
+
+  const result = planTransfers(state, snapshot, [90],
+    { source: 'predicted', predicted, horizon: 5, fromGameweek: 1 });
+  const plan = result.plans.find((p) => p.transfers === 1 && p.transfersIn[0].id === 90);
+  assert.ok(plan);
+  assert.equal(plan.perGameweek.length, 5, 'a lineup is worked out for every gameweek');
+
+  const shapes = new Set(plan.perGameweek.map((w) =>
+    `${w.lineup.formation.name}|${w.lineup.xi.map((p) => p.id).sort((a, b) => a - b).join(',')}`));
+  assert.ok(shapes.size > 1,
+    'one eleven across five gameweeks would mean it was solved once and carried forward');
+
+  // The signing is benched while he is poor and starts once he is not.
+  const starts = plan.perGameweek.map((w) => w.lineup.xi.some((p) => p.id === 90));
+  assert.deepEqual(starts, [false, false, false, true, true]);
+
+  // The armband follows the week's projections too.
+  const captains = plan.perGameweek.map((w) => w.lineup.captain.id);
+  assert.ok(new Set(captains).size > 1, 'the captain is re-chosen each gameweek');
+  assert.deepEqual(captains.slice(3), [90, 90], 'and it is the signing once he peaks');
+});
