@@ -180,6 +180,7 @@ table.grid th, table.grid td { padding: .45rem .55rem; border-bottom: 1px solid 
 table.grid th { font-size: .74rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 600; }
 table.grid tbody tr:hover { background: var(--surface-2); }
 table.grid td.wrap { white-space: normal; min-width: 14rem; }
+table.grid th.num, table.grid td.num { text-align: right; }
 
 /* ── Fixture difficulty strip ────────────────────────── */
 .fdr-strip { display: inline-flex; gap: 2px; }
@@ -270,3 +271,9 @@ footer { max-width: 1180px; margin: 0 auto; padding: 0 1.2rem 2rem; }
   .topbar-meta { gap: .9rem; }
   .player-card { width: 5.6rem; }
 }
+
+/* Transfer audit: a projection only counts in the weeks the player starts. */
+table.grid td.starts { font-weight: 600; }
+table.grid td.starts::after { content: ' \2022'; color: var(--good); }
+table.grid tfoot td { border-bottom: none; color: var(--text-muted); }
+.small.warn { color: var(--bad); width: 100%; }

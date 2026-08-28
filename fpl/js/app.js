@@ -239,8 +239,9 @@ function statusLabel(player) {
   return { text: `${Math.round(availability * 100)}% doubt`, className: 'warn' };
 }
 
-function banner(message, isError = false, action = null) {
+function banner(message, isError = false, action = null, key = null) {
   const el = $('#databanner');
+  el.dataset.key = key ?? '';
   el.replaceChildren();
   el.append(document.createTextNode(message));
   if (action) {
@@ -253,6 +254,15 @@ function banner(message, isError = false, action = null) {
   }
   el.className = `banner${isError ? ' error' : ''}`;
   el.hidden = false;
+}
+
+/** Take down a banner once its cause is gone, without hiding anyone else's. */
+function clearBanner(key) {
+  const el = $('#databanner');
+  if (el.hidden || el.dataset.key !== key) return;
+  el.hidden = true;
+  el.replaceChildren();
+  el.dataset.key = '';
 }
 
 let toastTimer = null;
@@ -1173,7 +1183,11 @@ function wireTransfersTab() {
     positionSelect: $('#target-position'),
     results: $('#target-results'),
     exclude: (p) => app.targets.includes(p.id) || app.state.picks.some((x) => x.playerId === p.id),
-    onPick: (player) => { app.targets.push(player.id); renderTransfersTab(); },
+    onPick: (player) => {
+      app.targets.push(player.id);
+      // He may already have numbers parked from an earlier paste.
+      if (reconcilePredicted()) renderAll(); else renderTransfersTab();
+    },
   });
   attachSearch({
     input: $('#protect-search'),
@@ -1211,9 +1225,35 @@ function renderTransfersTab() {
     chip.append(remove);
     list.append(chip);
   }
+  renderTargetCoverage();
   renderProtectedList();
   renderManualTransfer();
   if (app.planResult) renderPlans(app.planResult);
+}
+
+/**
+ * A target with no imported numbers projects zero, so the planner would never
+ * offer him and the reason would be invisible. Say so before the plan runs.
+ */
+function renderTargetCoverage() {
+  const list = $('#target-list');
+  if (!hasSquad() || app.targets.length === 0) return;
+  const gameweeks = app.snapshot.horizon(app.state.gameweek, Number($('#opt-horizon')?.value) || DEFAULT_HORIZON);
+  const predicted = app.state.predicted ?? {};
+  for (const id of app.targets) {
+    const player = app.snapshot.player(id);
+    if (!player) continue;
+    const rows = predicted[id] ?? {};
+    const absent = gameweeks.filter((gw) => rows[gw] == null);
+    if (absent.length === 0) continue;
+    const warning = note(absent.length === gameweeks.length
+      ? `⚠ ${player.label} has no imported predicted points, so he projects zero and will `
+        + 'never be suggested. Paste a table that includes him on the Manage tab.'
+      : `⚠ ${player.label} has no predicted points for GW${absent.join(', GW')}, `
+        + 'which count as zero and understate him.');
+    warning.className = 'small warn';
+    list.append(warning);
+  }
 }
 
 function renderProtectedList() {
@@ -1345,24 +1385,14 @@ function renderPlans(result) {
     summary.append(move, gain, meta);
     details.append(summary);
 
-    const table = document.createElement('table');
-    table.className = 'grid';
-    table.innerHTML = '<thead><tr><th>Gameweek</th><th class="num">Projected</th><th>Formation</th><th>Captain</th></tr></thead>';
-    const body = document.createElement('tbody');
-    for (const week of plan.perGameweek) {
-      body.append(rowOf([
-        td(`GW${week.gameweek}`),
-        td(week.points.toFixed(1), 'num'),
-        td(week.lineup.formation.name),
-        td(week.lineup.captain?.label ?? ''),
-      ]));
-    }
-    table.append(body);
+    const table = planAudit(plan, result);
 
     const wrap = document.createElement('div');
     wrap.className = 'table-scroll';
     wrap.append(table);
     details.append(wrap);
+    details.append(note('A dot marks a player who is in that gameweek\u2019s optimal eleven. '
+      + 'Plans are judged on the eleven, so a player projected to be benched adds nothing that week.'));
 
     if (plan.transfers > 0) {
       const apply = document.createElement('button');
@@ -1373,6 +1403,81 @@ function renderPlans(result) {
     }
     list.append(details);
   }
+}
+
+/**
+ * The arithmetic behind a plan's headline number, gameweek by gameweek.
+ *
+ * A move is judged on the XI it produces, not on the two players swapped, so
+ * the per-week gain is often smaller than the difference between them: a
+ * defender who was on the bench contributes nothing to the baseline, and an
+ * incoming player only counts in the weeks the optimiser actually starts him.
+ * This table shows both players' projections, whether each one is in that
+ * week's eleven, and the weighted difference that adds up to the net gain.
+ */
+function planAudit(plan, result) {
+  const baselineWeeks = new Map(result.baseline.perGameweek.map((w) => [w.gameweek, w]));
+  const points = (id, gw) => result.projections.get(id)?.byGameweek.get(gw);
+  const started = (week, id) => !!week?.lineup.xi.some((p) => p.id === id);
+
+  const cellFor = (id, week, gw) => {
+    const value = points(id, gw);
+    const cell = td(value == null ? '—' : value.toFixed(1), 'num');
+    if (started(week, id)) cell.classList.add('starts');
+    else cell.classList.add('muted');
+    cell.title = started(week, id) ? 'In the eleven this gameweek' : 'On the bench this gameweek';
+    return cell;
+  };
+
+  const table = document.createElement('table');
+  table.className = 'grid';
+  const head = document.createElement('thead');
+  head.append(rowOf([
+    th('Gameweek'),
+    ...plan.transfersOut.map((p) => th(`− ${p.label ?? p.name}`, 'num')),
+    ...plan.transfersIn.map((p) => th(`+ ${p.label ?? p.name}`, 'num')),
+    th('XI now', 'num'), th('XI after', 'num'),
+    th('Δ', 'num'), th('Weight', 'num'), th('Weighted', 'num'),
+    th('Formation'), th('Captain'),
+  ]));
+  table.append(head);
+
+  const body = document.createElement('tbody');
+  let weightedTotal = 0;
+  plan.perGameweek.forEach((week, index) => {
+    const base = baselineWeeks.get(week.gameweek);
+    const delta = week.points - (base?.points ?? 0);
+    const weight = horizonWeight(index, PLANNER_DEFAULTS.decay);
+    weightedTotal += delta * weight;
+    body.append(rowOf([
+      td(`GW${week.gameweek}`),
+      ...plan.transfersOut.map((p) => cellFor(p.id, base, week.gameweek)),
+      ...plan.transfersIn.map((p) => cellFor(p.id, week, week.gameweek)),
+      td((base?.points ?? 0).toFixed(1), 'num'),
+      td(week.points.toFixed(1), 'num'),
+      td(`${delta >= 0 ? '+' : ''}${delta.toFixed(1)}`, `num ${delta >= 0 ? 'gain-pos' : 'gain-neg'}`),
+      td(weight.toFixed(2), 'num muted'),
+      td(`${delta * weight >= 0 ? '+' : ''}${(delta * weight).toFixed(2)}`, 'num'),
+      td(week.lineup.formation.name),
+      td(week.lineup.captain?.label ?? ''),
+    ]));
+  });
+  table.append(body);
+
+  // Spell out how the weighted swing becomes the headline gain, so a hit or a
+  // banked-transfer value can never look like a projection.
+  const parts = [`weighted swing ${weightedTotal >= 0 ? '+' : ''}${weightedTotal.toFixed(2)}`];
+  if (plan.hits) parts.push(`hit −${plan.hits}`);
+  const banked = plan.netGain - (weightedTotal - plan.hits);
+  if (Math.abs(banked) >= 0.005) parts.push(`banked transfers ${banked >= 0 ? '+' : ''}${banked.toFixed(2)}`);
+  const foot = document.createElement('tfoot');
+  const cell = document.createElement('td');
+  cell.colSpan = 8 + plan.transfersOut.length + plan.transfersIn.length;
+  cell.className = 'small';
+  cell.textContent = `${parts.join(' · ')} = net ${plan.netGain >= 0 ? '+' : ''}${plan.netGain.toFixed(2)} points.`;
+  foot.append(rowOf([cell]));
+  table.append(foot);
+  return table;
 }
 
 function applyPlan(plan) {
@@ -1598,6 +1703,44 @@ function applyTeamNewsFromBox() {
   renderAll();
 }
 
+/** Rows for players nobody owns yet, parked for a later shortlist. */
+const MAX_PARKED_ROWS = 1200;
+function keepRows(unmatched) {
+  return unmatched
+    .slice(0, MAX_PARKED_ROWS)
+    .map((entry) => ({ name: entry.name, team: entry.team ?? null, points: { ...entry.points } }));
+}
+
+/**
+ * Give predictions to any squad or shortlist player who still has none, using
+ * the parked rows from the last import. Called whenever the shortlist changes,
+ * so a target added after the paste is projected on the same numbers as
+ * everyone else rather than on zero.
+ */
+function reconcilePredicted() {
+  const rows = app.state.predictedRows ?? [];
+  if (!rows.length || !hasSquad()) return false;
+  const have = app.state.predicted ?? {};
+  const wanting = [
+    ...squadPlayers(app.state, app.snapshot),
+    ...app.targets.map((id) => app.snapshot.player(id)).filter(Boolean)
+      .map((p) => ({ ...p, team: app.snapshot.team(p.teamId) })),
+  ].filter((p) => !have[p.id]);
+  if (!wanting.length) return false;
+
+  const { points, matched } = matchPredictions(wanting, rows);
+  if (!matched.length) return false;
+  const claimed = new Set(matched.map((m) => m.entry));
+  app.state = {
+    ...app.state,
+    predicted: { ...have, ...points },
+    predictedRows: rows.filter((row) => !claimed.has(row)),
+  };
+  app.lineup = null;
+  app.planResult = null;
+  return true;
+}
+
 /**
  * Read a pasted or uploaded predictions table and match it to the squad plus
  * the transfer shortlist. Matching against only the players in question keeps a
@@ -1621,13 +1764,18 @@ function importPredicted(text) {
     ...app.targets.map((id) => app.snapshot.player(id)).filter(Boolean)
       .map((p) => ({ ...p, team: app.snapshot.team(p.teamId) })),
   ];
-  const { points, matched, ambiguous } = matchPredictions(pool, entries);
+  const { points, matched, ambiguous, unmatched } = matchPredictions(pool, entries);
 
+  // A published table covers the whole league, and a target is often shortlisted
+  // after the paste. Keep the rows nobody claimed so that adding him later still
+  // gives him numbers instead of a silent zero.
   app.state = {
     ...app.state,
     predicted: { ...(app.state.predicted ?? {}), ...points },
+    predictedRows: keepRows(unmatched),
     predictedMeta: { at: new Date().toISOString(), gameweeks, rows: entries.length },
   };
+  reconcilePredicted();
   app.lineup = null;
   app.planResult = null;
 
@@ -1650,6 +1798,11 @@ function importPredicted(text) {
   if (missing.length === 0 && ambiguous.length === 0) {
     lines.push('Every player accounted for.');
   }
+  const parked = (app.state.predictedRows ?? []).length;
+  if (parked) {
+    lines.push(`${parked} row(s) are for players you do not own; they are kept, `
+      + 'so shortlisting one of them later picks up his numbers automatically.');
+  }
 
   const report = document.createElement('pre');
   report.className = 'hint';
@@ -1671,10 +1824,14 @@ function renderPredictedStatus() {
   const ids = app.state.picks.map((p) => p.playerId);
   const stats = coverage(app.state.predicted ?? {}, ids, gameweeks);
 
+  // An import clears the warning it caused; leaving it up would say the
+  // opposite of what the projections are now doing.
+  if (stats.have > 0) clearBanner('predicted');
+
   if (stats.have === 0) {
     banner('No predicted points have been imported, so every projection is zero and the '
       + 'optimiser has nothing to work with. Paste your predicted-points table on the '
-      + 'Manage tab.', true);
+      + 'Manage tab.', true, null, 'predicted');
     box.append(note('No predicted points imported — all projections are zero.'));
     return;
   }
@@ -1801,6 +1958,12 @@ function setOverride(playerId, key, value) {
 
 // ── Small DOM helpers ──────────────────────────────────────────────────────
 
+function th(text, className = '') {
+  const cell = document.createElement('th');
+  cell.textContent = text;
+  if (className) cell.className = className;
+  return cell;
+}
 function td(text, className = '') {
   const cell = document.createElement('td');
   cell.textContent = text;

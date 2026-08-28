@@ -605,3 +605,52 @@ test('the eleven is solved afresh in each gameweek, not once and carried', () =>
   assert.ok(new Set(captains).size > 1, 'the captain is re-chosen each gameweek');
   assert.deepEqual(captains.slice(3), [90, 90], 'and it is the signing once he peaks');
 });
+
+test('a swap is judged on the eleven it produces, not on the two players', () => {
+  const spec = (id, position, team, price = 50) => ({ id, name: `P${id}`, position, team, price });
+  const squad = [
+    spec(1, GKP, 1), spec(2, GKP, 2),
+    spec(3, DEF, 3), spec(4, DEF, 4, 55), spec(5, DEF, 5), spec(6, DEF, 6), spec(7, DEF, 7),
+    spec(8, MID, 8), spec(9, MID, 9), spec(10, MID, 10), spec(11, MID, 11), spec(12, MID, 12),
+    spec(13, FWD, 13), spec(14, FWD, 14), spec(15, FWD, 15),
+  ];
+  const candidate = spec(90, DEF, 16, 45);
+  const snapshot = buildSnapshot({ playerSpecs: [...squad, candidate], teams: 20 });
+
+  // Player 4 is the squad's fifth-best defender, so he only reaches the eleven
+  // in the weeks a fifth defender is worth starting. The candidate outscores
+  // him every week, but that head-to-head gap is not the gain.
+  const flat = (v) => ({ 1: v, 2: v, 3: v });
+  const predicted = {
+    1: flat(4), 2: flat(1),
+    3: flat(6), 4: flat(2.2), 5: flat(5), 6: flat(4.5), 7: flat(4.4),
+    8: flat(7), 9: flat(6.5), 10: flat(6), 11: flat(3), 12: flat(2.5),
+    13: flat(8), 14: flat(5.5), 15: flat(1),
+    90: { 1: 3.1, 2: 3.1, 3: 1.9 },
+  };
+
+  let state = initialSquad(emptyState(1), squad.map((s) => s.id), snapshot);
+  state = { ...state, freeTransfers: 1, bank: 0 };
+
+  const result = planTransfers(state, snapshot, [90],
+    { source: 'predicted', predicted, horizon: 3, fromGameweek: 1 });
+  const plan = result.plans.find((p) => p.transfers === 1
+    && p.transfersOut[0].id === 4 && p.transfersIn[0].id === 90);
+  assert.ok(plan, 'the swap is offered');
+
+  // The gain is the weighted difference between the two simulated elevens.
+  const baseline = new Map(result.baseline.perGameweek.map((w) => [w.gameweek, w.points]));
+  const simulated = plan.perGameweek.reduce((sum, week, i) =>
+    sum + (week.points - baseline.get(week.gameweek)) * horizonWeight(i, PLANNER_DEFAULTS.decay), 0);
+  assert.ok(Math.abs(plan.netGain - simulated) < 1e-9,
+    `net gain ${plan.netGain} should equal the simulated swing ${simulated}`);
+
+  // And it is smaller than the head-to-head gap, because the outgoing player
+  // was benched in the weeks a fifth defender was not worth starting.
+  const headToHead = [1, 2, 3].reduce((sum, gw, i) =>
+    sum + (predicted[90][gw] - predicted[4][gw]) * horizonWeight(i, PLANNER_DEFAULTS.decay), 0);
+  assert.ok(plan.netGain < headToHead,
+    `the eleven-based gain ${plan.netGain} must not be the raw gap ${headToHead}`);
+  assert.ok(plan.netGain > 0, 'and it is still an improvement, so it is recommended');
+  assert.equal(result.recommendation.action, 'transfer');
+});
