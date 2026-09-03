@@ -75,6 +75,10 @@ function squadSnapshot() {
     player.fullName = spec.name ?? player.name;
     player.team = snapshot.team(player.teamId);
   }
+  // Real clubs, because matching uses the club column to decide identity.
+  for (const [id, short] of [[8, 'MCI'], [9, 'MUN'], [3, 'ARS']]) {
+    snapshot.player(id).team = { ...snapshot.player(id).team, short, name: short };
+  }
   return snapshot;
 }
 
@@ -99,14 +103,17 @@ test('a player not asked about is reported rather than forced onto someone', () 
   assert.equal(unmatched.length, 2);
 });
 
-test('one row cannot claim two players', () => {
+test('two rows for one player are queried, never guessed between', () => {
   const snapshot = squadSnapshot();
   const players = [3, 8, 9].map((id) => snapshot.player(id));
   const doubled = parsePredictedPoints(
     'Player\tGW7\nHaaland\t7.4\nHaaland\t9.9').entries;
-  const { matched, unmatched } = matchPredictions(players, doubled);
-  assert.equal(matched.length, 1);
-  assert.equal(unmatched.length, 1, 'the second row has nobody left to match');
+  const { matched, ambiguous, points } = matchPredictions(players, doubled);
+
+  // Taking whichever came first would be a coin toss between 7.4 and 9.9.
+  assert.equal(matched.length, 0);
+  assert.equal(ambiguous.length, 2);
+  assert.deepEqual(points, {}, 'and no other player is handed the numbers');
 });
 
 test('coverage reports exactly what is missing', () => {
@@ -280,4 +287,47 @@ test('the club column separates two players who share a surname', () => {
   const { points } = matchPredictions([8, 9].map((id) => snapshot.player(id)), entries);
   assert.equal(points[8][1], 3.4, 'the Brentford one');
   assert.equal(points[9][1], 2.8, 'the Forest one');
+});
+
+test('a namesake at another club cannot claim your player, whatever the row order', () => {
+  const specs = legalSquadSpecs({ 4: { name: 'Thomas' } });
+  const snapshot = buildSnapshot({ playerSpecs: specs });
+  const thomas = snapshot.player(4);
+  thomas.fullName = 'Thomas';
+  thomas.team = { ...snapshot.team(thomas.teamId), short: 'COV', name: 'COV' };
+  const players = [thomas];
+
+  // Published tables are sorted by the week's points, so which namesake comes
+  // first changes from week to week. Neither order may change the answer.
+  const rows = {
+    cov: 'Thomas\tCOV\tDEF\t4.0\t1.8\t3.1',
+    hul: 'Thomas\tHUL\tMID\t5.5\t1.6\t1.3',
+    asante: 'Thomas-Asante\tCOV\tFWD\t5.0\t1.2\t1.5',
+  };
+  const header = 'Player\tTeam\tPos\tPrice\tGW3\tGW4';
+
+  for (const order of [['cov', 'hul', 'asante'], ['hul', 'asante', 'cov'], ['asante', 'hul', 'cov']]) {
+    const table = [header, ...order.map((k) => rows[k])].join('\n');
+    const { entries } = parsePredictedPoints(table);
+    const { points, matched } = matchPredictions(players, entries);
+    assert.equal(matched.length, 1, `order ${order}`);
+    assert.equal(points[4][3], 1.8, `GW3 for order ${order}`);
+    assert.equal(points[4][4], 3.1, `GW4 for order ${order}`);
+  }
+});
+
+test('a row for your player at a different club is reported, not silently dropped', () => {
+  const specs = legalSquadSpecs({ 4: { name: 'Thomas' } });
+  const snapshot = buildSnapshot({ playerSpecs: specs });
+  const thomas = snapshot.player(4);
+  thomas.fullName = 'Thomas';
+  thomas.team = { ...snapshot.team(thomas.teamId), short: 'COV', name: 'COV' };
+
+  const table = 'Player\tTeam\tPos\tGW3\nThomas\tHUL\tMID\t1.6';
+  const { entries } = parsePredictedPoints(table);
+  const { matched, conflicts } = matchPredictions([thomas], entries);
+  assert.equal(matched.length, 0);
+  assert.equal(conflicts.length, 1, 'a club mismatch is worth telling the manager about');
+  assert.equal(conflicts[0].team, 'HUL');
+  assert.equal(conflicts[0].candidates[0].id, 4);
 });

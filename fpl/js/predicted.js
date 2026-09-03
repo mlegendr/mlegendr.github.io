@@ -183,41 +183,92 @@ function parseJson(text) {
  */
 export function matchPredictions(players, entries) {
   const matched = [];
-  const unmatched = [];
   const ambiguous = [];
+  const conflicts = [];
   const points = {};
-  const claimed = new Set();
 
+  // Score every row against every player first, then assign the strongest fits
+  // before the weaker ones. Taking rows in the order they appear would let a
+  // partial match ("Thomas-Asante") claim a player before his own exact row is
+  // reached - and since these tables are sorted by the week's points, that
+  // order changes every week.
+  const pairs = [];
+  const looksLike = new Map();
   for (const entry of entries) {
+    const club = entry.team ? normalise(entry.team) : null;
     const ranked = players
-      .filter((p) => !claimed.has(p.id))
       .map((player) => ({ player, score: matchScore(player, entry.name) }))
       .filter((x) => x.score > 0);
-
-    if (ranked.length === 0) { unmatched.push(entry); continue; }
-
-    // A club column, when the table has one, separates players who share a name.
-    let best = ranked.sort((a, b) => b.score - a.score);
-    if (entry.team) {
-      const club = normalise(entry.team);
-      const sameClub = best.filter((x) => {
-        const team = x.player.team ?? null;
-        const short = normalise(team?.short ?? '');
-        const full = normalise(team?.name ?? '');
-        return short === club || full === club || full.startsWith(club) || club.startsWith(short);
-      });
-      if (sameClub.length) best = sameClub;
-    }
-
-    const tied = best.filter((x) => x.score === best[0].score);
-    if (tied.length > 1) { ambiguous.push({ ...entry, candidates: tied.map((x) => x.player) }); continue; }
-
-    claimed.add(best[0].player.id);
-    points[best[0].player.id] = { ...entry.points };
-    matched.push({ entry, player: best[0].player });
+    // The club column is evidence about who a row is, not a tiebreak: surnames
+    // repeat across the league, so a row from another club is another player.
+    const eligible = club ? ranked.filter((x) => clubAllows(x.player, club)) : ranked;
+    looksLike.set(entry, { ranked, eligible });
+    for (const x of eligible) pairs.push({ entry, player: x.player, score: x.score });
   }
 
-  return { points, matched, unmatched, ambiguous };
+  const claimedPlayers = new Set();
+  const settled = new Set();
+  const scores = [...new Set(pairs.map((p) => p.score))].sort((a, b) => b - a);
+
+  for (const score of scores) {
+    const band = pairs.filter((p) => p.score === score
+      && !settled.has(p.entry) && !claimedPlayers.has(p.player.id));
+
+    for (const pair of band) {
+      if (settled.has(pair.entry) || claimedPlayers.has(pair.player.id)) continue;
+
+      // One row fitting several players equally well, or several rows fitting
+      // one player, is a question rather than an answer - so ask it.
+      const alsoFits = band.filter((p) => p.entry === pair.entry
+        && !claimedPlayers.has(p.player.id)).map((p) => p.player);
+      if (alsoFits.length > 1) {
+        ambiguous.push({ ...pair.entry, candidates: alsoFits });
+        settled.add(pair.entry);
+        continue;
+      }
+      const rivals = band.filter((p) => p.player.id === pair.player.id && !settled.has(p.entry));
+      if (rivals.length > 1) {
+        for (const rival of rivals) {
+          ambiguous.push({ ...rival.entry, candidates: [pair.player] });
+          settled.add(rival.entry);
+        }
+        claimedPlayers.add(pair.player.id);
+        continue;
+      }
+
+      claimedPlayers.add(pair.player.id);
+      settled.add(pair.entry);
+      points[pair.player.id] = { ...pair.entry.points };
+      matched.push({ entry: pair.entry, player: pair.player });
+    }
+  }
+
+  const unmatched = [];
+  for (const entry of entries) {
+    if (settled.has(entry)) continue;   // matched, or already reported as ambiguous
+    const { ranked, eligible } = looksLike.get(entry);
+    // Named like one of your players but at a different club: worth saying,
+    // because a real mid-season move looks exactly like this.
+    if (ranked.length && eligible.length === 0) {
+      conflicts.push({ ...entry, candidates: ranked.map((x) => x.player) });
+    }
+    unmatched.push(entry);
+  }
+
+  return { points, matched, unmatched, ambiguous, conflicts };
+}
+
+/**
+ * Does this player's club allow him to be the subject of a row from `club`?
+ * A player whose club we do not know cannot be ruled out, so he stays eligible.
+ */
+function clubAllows(player, club) {
+  const team = player.team ?? null;
+  const short = normalise(team?.short ?? '');
+  const full = normalise(team?.name ?? '');
+  if (!short && !full) return true;
+  return short === club || full === club
+    || (!!full && full.startsWith(club)) || (!!short && club.startsWith(short));
 }
 
 /** Which of the wanted gameweeks a player actually has a number for. */

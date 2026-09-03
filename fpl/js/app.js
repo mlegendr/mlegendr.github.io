@@ -1764,7 +1764,7 @@ function importPredicted(text) {
     ...app.targets.map((id) => app.snapshot.player(id)).filter(Boolean)
       .map((p) => ({ ...p, team: app.snapshot.team(p.teamId) })),
   ];
-  const { points, matched, ambiguous, unmatched } = matchPredictions(pool, entries);
+  const { points, matched, ambiguous, unmatched, conflicts } = matchPredictions(pool, entries);
 
   // A published table covers the whole league, and a target is often shortlisted
   // after the paste. Keep the rows nobody claimed so that adding him later still
@@ -1792,7 +1792,15 @@ function importPredicted(text) {
   lines.push(`Matched ${matched.length} of your ${wanted.length} squad and shortlist players.`);
   for (const player of missing) lines.push(`✗ no prediction found for ${player.label}`);
   for (const a of ambiguous) {
-    lines.push(`? ${a.name} (${a.team ?? '?'}) could be ${a.candidates.map((p) => p.label).join(' or ')}`);
+    lines.push(a.candidates.length === 1
+      ? `? more than one row reads as ${a.candidates[0].label}, so none of them was used`
+      : `? ${a.name} (${a.team ?? '?'}) could be ${a.candidates.map((p) => p.label).join(' or ')}`);
+  }
+  // A namesake at another club is not your player - but a real transfer looks
+  // identical from here, so name it rather than dropping it silently.
+  for (const c of conflicts ?? []) {
+    lines.push(`✗ ${c.name} (${c.team}) is not your ${c.candidates.map((p) => p.label).join(' or ')}`
+      + ' — same name, different club. If he has moved, refresh your data snapshot.');
   }
   for (const p of problems) lines.push(`✗ ${p}`);
   if (missing.length === 0 && ambiguous.length === 0) {
