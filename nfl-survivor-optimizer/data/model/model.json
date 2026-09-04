@@ -1,0 +1,389 @@
+{
+  "version": 2,
+  "trainedAt": "2026-09-04T18:20:40.952677+00:00",
+  "targetSeason": 2026,
+  "trainSeasons": [
+    2006,
+    2007,
+    2008,
+    2009,
+    2010,
+    2011,
+    2012,
+    2013,
+    2014,
+    2015,
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022
+  ],
+  "holdoutSeasons": [
+    2023,
+    2024,
+    2025
+  ],
+  "elo": {
+    "k": 20.0,
+    "homeField": 35.0,
+    "restPerDay": 1.6,
+    "movScale": 0.001,
+    "revert": 0.35,
+    "base": 1500.0
+  },
+  "epa": {
+    "alpha": 0.22,
+    "carryover": 0.55,
+    "rampGames": 4.0,
+    "scale": 10.0
+  },
+  "logistic": {
+    "featureOrder": [
+      "eloDiff100",
+      "epaEdge",
+      "restDiff7",
+      "neutralSite",
+      "divisionGame"
+    ],
+    "intercept": 0.12635845237352808,
+    "coefficients": {
+      "eloDiff100": 0.5432277087648152,
+      "epaEdge": 0.15472420411896867,
+      "restDiff7": 0.13243686358841206,
+      "neutralSite": -0.1828823643645097,
+      "divisionGame": -0.1138782649076401
+    }
+  },
+  "priors": {
+    "ARI": {
+      "elo": 1392.96,
+      "offEpa": -0.00692,
+      "defEpa": 0.09364
+    },
+    "ATL": {
+      "elo": 1471.75,
+      "offEpa": -0.01357,
+      "defEpa": -0.00529
+    },
+    "BAL": {
+      "elo": 1539.34,
+      "offEpa": 0.06479,
+      "defEpa": 0.00722
+    },
+    "BUF": {
+      "elo": 1592.96,
+      "offEpa": 0.06346,
+      "defEpa": -0.04309
+    },
+    "CAR": {
+      "elo": 1436.28,
+      "offEpa": -0.04626,
+      "defEpa": 0.02094
+    },
+    "CHI": {
+      "elo": 1527.2,
+      "offEpa": 0.0538,
+      "defEpa": 0.02966
+    },
+    "CIN": {
+      "elo": 1479.85,
+      "offEpa": 0.0477,
+      "defEpa": 0.01834
+    },
+    "CLE": {
+      "elo": 1425.98,
+      "offEpa": -0.10048,
+      "defEpa": -0.03817
+    },
+    "DAL": {
+      "elo": 1455.22,
+      "offEpa": 0.02693,
+      "defEpa": 0.11396
+    },
+    "DEN": {
+      "elo": 1610.77,
+      "offEpa": 0.00564,
+      "defEpa": -0.07318
+    },
+    "DET": {
+      "elo": 1553.76,
+      "offEpa": 0.01252,
+      "defEpa": 0.00951
+    },
+    "GB": {
+      "elo": 1535.19,
+      "offEpa": 0.00801,
+      "defEpa": 0.0397
+    },
+    "HOU": {
+      "elo": 1596.68,
+      "offEpa": -0.02696,
+      "defEpa": -0.05064
+    },
+    "IND": {
+      "elo": 1466.75,
+      "offEpa": -0.02047,
+      "defEpa": 0.0294
+    },
+    "JAX": {
+      "elo": 1576.38,
+      "offEpa": 0.05355,
+      "defEpa": -0.1038
+    },
+    "KC": {
+      "elo": 1484.08,
+      "offEpa": -0.09635,
+      "defEpa": -0.05264
+    },
+    "LA": {
+      "elo": 1593.4,
+      "offEpa": 0.0818,
+      "defEpa": 0.01791
+    },
+    "LAC": {
+      "elo": 1538.79,
+      "offEpa": -0.06307,
+      "defEpa": -0.07481
+    },
+    "LV": {
+      "elo": 1354.66,
+      "offEpa": -0.15139,
+      "defEpa": -0.03069
+    },
+    "MIA": {
+      "elo": 1457.15,
+      "offEpa": -0.02945,
+      "defEpa": 0.05406
+    },
+    "MIN": {
+      "elo": 1553.33,
+      "offEpa": -0.06314,
+      "defEpa": -0.12927
+    },
+    "NE": {
+      "elo": 1567.94,
+      "offEpa": 0.12345,
+      "defEpa": -0.05422
+    },
+    "NO": {
+      "elo": 1440.27,
+      "offEpa": 0.0102,
+      "defEpa": -0.08893
+    },
+    "NYG": {
+      "elo": 1425.17,
+      "offEpa": 0.02805,
+      "defEpa": -0.00894
+    },
+    "NYJ": {
+      "elo": 1365.35,
+      "offEpa": -0.11927,
+      "defEpa": 0.1195
+    },
+    "PHI": {
+      "elo": 1553.84,
+      "offEpa": -0.00013,
+      "defEpa": -0.07282
+    },
+    "PIT": {
+      "elo": 1528.28,
+      "offEpa": 0.01903,
+      "defEpa": 0.00401
+    },
+    "SEA": {
+      "elo": 1630.11,
+      "offEpa": 0.0096,
+      "defEpa": -0.12951
+    },
+    "SF": {
+      "elo": 1552.24,
+      "offEpa": 0.03462,
+      "defEpa": 0.0493
+    },
+    "TB": {
+      "elo": 1477.74,
+      "offEpa": -0.00345,
+      "defEpa": 0.03236
+    },
+    "TEN": {
+      "elo": 1362.31,
+      "offEpa": -0.07646,
+      "defEpa": 0.06643
+    },
+    "WAS": {
+      "elo": 1454.25,
+      "offEpa": -0.01277,
+      "defEpa": 0.06692
+    }
+  },
+  "blend": {
+    "marketWeightBase": 0.78,
+    "marketWeightPerBook": 0.022,
+    "marketWeightMax": 0.92,
+    "marketWeightMin": 0.3,
+    "stalenessHalfLifeHours": 36.0,
+    "singleBookPenalty": 0.35,
+    "calibrationNote": "scripts/backtest.py's sweep against historical CLOSING lines prefers a market weight near 1.0. This app runs against mid-week, sometimes thin or stale lines, so the weight is capped and is reduced further by staleness, book count and dispersion."
+  },
+  "horizonShrink": {
+    "perWeek": 0.022,
+    "max": 0.34
+  },
+  "metrics": {
+    "inSample": {
+      "model": {
+        "n": 4370,
+        "brier": 0.2181115610479273,
+        "logLoss": 0.6251743267376805,
+        "accuracy": 0.6453089244851259
+      },
+      "market": {
+        "n": 4236,
+        "brier": 0.2108520410309739,
+        "logLoss": 0.6087514314855257,
+        "accuracy": 0.6614730878186968
+      },
+      "blend": {
+        "n": 4236,
+        "brier": 0.2107493532940617,
+        "logLoss": 0.6086666943415363,
+        "accuracy": 0.6617091595845137
+      },
+      "calibration": [
+        {
+          "bin": "50-55%",
+          "n": 843,
+          "predicted": 0.5246708806305135,
+          "actual": 0.5231316725978647
+        },
+        {
+          "bin": "55-60%",
+          "n": 830,
+          "predicted": 0.5743009819756939,
+          "actual": 0.5746987951807229
+        },
+        {
+          "bin": "60-65%",
+          "n": 769,
+          "predicted": 0.6247624489562931,
+          "actual": 0.6020806241872562
+        },
+        {
+          "bin": "65-70%",
+          "n": 646,
+          "predicted": 0.6741628702603449,
+          "actual": 0.6687306501547987
+        },
+        {
+          "bin": "70-75%",
+          "n": 484,
+          "predicted": 0.7237766791584328,
+          "actual": 0.7417355371900827
+        },
+        {
+          "bin": "75-80%",
+          "n": 396,
+          "predicted": 0.7724734918933128,
+          "actual": 0.7777777777777778
+        },
+        {
+          "bin": "80-85%",
+          "n": 245,
+          "predicted": 0.8223617941556122,
+          "actual": 0.8204081632653061
+        },
+        {
+          "bin": "85-90%",
+          "n": 125,
+          "predicted": 0.8723230914390434,
+          "actual": 0.88
+        },
+        {
+          "bin": "90-100%",
+          "n": 32,
+          "predicted": 0.9186789847246298,
+          "actual": 0.90625
+        }
+      ]
+    },
+    "holdout": {
+      "model": {
+        "n": 815,
+        "brier": 0.22547281763932536,
+        "logLoss": 0.6417801170075883,
+        "accuracy": 0.6233128834355828
+      },
+      "market": {
+        "n": 815,
+        "brier": 0.21033448921692563,
+        "logLoss": 0.6080720320254637,
+        "accuracy": 0.6822085889570552
+      },
+      "blend": {
+        "n": 815,
+        "brier": 0.21269997438512522,
+        "logLoss": 0.6133565170240676,
+        "accuracy": 0.6785276073619632
+      },
+      "calibration": [
+        {
+          "bin": "50-55%",
+          "n": 166,
+          "predicted": 0.5245867459265271,
+          "actual": 0.4939759036144578
+        },
+        {
+          "bin": "55-60%",
+          "n": 164,
+          "predicted": 0.5746682235057855,
+          "actual": 0.5548780487804879
+        },
+        {
+          "bin": "60-65%",
+          "n": 110,
+          "predicted": 0.6251466454710092,
+          "actual": 0.6
+        },
+        {
+          "bin": "65-70%",
+          "n": 105,
+          "predicted": 0.6728171758072338,
+          "actual": 0.6952380952380952
+        },
+        {
+          "bin": "70-75%",
+          "n": 115,
+          "predicted": 0.7233810305866866,
+          "actual": 0.6869565217391305
+        },
+        {
+          "bin": "75-80%",
+          "n": 81,
+          "predicted": 0.7752242442535969,
+          "actual": 0.691358024691358
+        },
+        {
+          "bin": "80-85%",
+          "n": 40,
+          "predicted": 0.8200268921136219,
+          "actual": 0.75
+        },
+        {
+          "bin": "85-90%",
+          "n": 27,
+          "predicted": 0.8687426706553016,
+          "actual": 0.9259259259259259
+        },
+        {
+          "bin": "90-100%",
+          "n": 7,
+          "predicted": 0.9131505706229449,
+          "actual": 0.8571428571428571
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+/*
+ * Dark, information-dense palette. The probability ramp is deliberately not a
+ * red/green pair: colour-blind users have to be able to read the heatmap, so the
+ * ramp runs cool (underdog) -> warm (favourite) with luminance doing most of the
+ * work, and every cell also carries a number.
+ */
+@theme {
+  --color-ink-950: #080b12;
+  --color-ink-900: #0c1018;
+  --color-ink-850: #111725;
+  --color-ink-800: #161d2d;
+  --color-ink-700: #1e2739;
+  --color-ink-600: #2a344a;
+  --color-ink-500: #3b485f;
+  --color-ink-400: #64748b;
+  --color-ink-300: #94a3b8;
+  --color-ink-200: #cbd5e1;
+  --color-ink-100: #e8eefc;
+
+  --color-accent: #62b6ff;
+  --color-accent-dim: #2b6ca3;
+  --color-good: #4ade80;
+  --color-warn: #fbbf24;
+  --color-bad: #fb7185;
+  --color-violet: #a78bfa;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--color-ink-950);
+  color: var(--color-ink-100);
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-feature-settings: "tnum" 1;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Utility for the many scrollable tables/grids in the app. */
+.scroll-x {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-600) transparent;
+}
+.scroll-x::-webkit-scrollbar {
+  height: 8px;
+}
+.scroll-x::-webkit-scrollbar-thumb {
+  background: var(--color-ink-600);
+  border-radius: 4px;
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.animate-pulse-soft {
+  animation: pulse-soft 1.6s ease-in-out infinite;
+}
