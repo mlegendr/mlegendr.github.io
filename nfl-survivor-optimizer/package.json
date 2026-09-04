@@ -25,7 +25,8 @@
     "verify": "npm run typecheck && npm run test && npm run build",
     "prestart": "npm run db:setup && tsx scripts/ensure-seeded.ts",
     "env:setup": "node scripts/ensure-env.mjs",
-    "pretest": "node scripts/ensure-env.mjs && prisma generate"
+    "pretest": "node scripts/ensure-env.mjs && prisma generate",
+    "postinstall": "node scripts/check-native-deps.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

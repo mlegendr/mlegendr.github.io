@@ -27,6 +27,7 @@ read server-side only and never reach browser JavaScript.
 - [Model training](#model-training)
 - [Backtesting](#backtesting)
 - [Testing](#testing)
+- [Troubleshooting](#troubleshooting)
 - [Project layout](#project-layout)
 - [HTTP API](#http-api)
 - [Known limitations](#known-limitations)
@@ -569,6 +570,65 @@ network access and no Radix runtime.
 
 `POST /api/picks` refuses a team that is already confirmed elsewhere, and refuses to confirm a game
 that has already kicked off unless you pass `"force": true`.
+
+---
+
+## Troubleshooting
+
+### `Cannot find native binding` when the page loads
+
+```
+Error: Cannot find native binding. npm has a bug related to optional dependencies
+(https://github.com/npm/cli/issues/4828)
+./src/app/globals.css ... postcss-loader ...
+```
+
+Tailwind v4 compiles CSS through a native Rust binary (`@tailwindcss/oxide`, plus
+`lightningcss`), shipped as one optional dependency per platform. npm sometimes skips
+installing the one for your machine — a long-standing npm bug, not a missing lockfile entry
+(`package-lock.json` here contains all of them, macOS arm64/x64 included).
+
+```bash
+rm -rf node_modules package-lock.json .next
+npm install
+npm run dev
+```
+
+Deleting `.next` matters: the failed CSS build is cached there and will be replayed otherwise.
+If it still fails, `npm cache clean --force` and repeat.
+
+### `P1012: Environment variable not found: DATABASE_URL`
+
+You are on a version from before `.env` was created automatically. Either pull the latest, or:
+
+```bash
+cp .env.example .env
+```
+
+The Prisma CLI reads `DATABASE_URL` from `.env` directly — it does not use Next.js's env
+loading — so it fails before the app starts.
+
+### `No 2026 games in the database`
+
+Seeding never ran or had no network:
+
+```bash
+npm run db:seed
+```
+
+Add `-- --offline` to set up teams and the pool without any network call.
+
+### Port 3000 already in use
+
+```bash
+npx next dev -p 3001
+```
+
+### Everything is labelled DEGRADED
+
+Expected with no API keys: the odds provider falls back to the single reference line in the
+schedule, and injuries fall back to Sleeper or to nothing. See [API setup](#api-setup). The app
+is fully usable in this state — it just says so rather than pretending the data is fresh.
 
 ---
 
