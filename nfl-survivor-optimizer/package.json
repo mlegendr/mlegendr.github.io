@@ -6,14 +6,14 @@
   "scripts": {
     "predev": "npm run db:setup && tsx scripts/ensure-seeded.ts",
     "dev": "next dev",
-    "prebuild": "prisma generate",
+    "prebuild": "node scripts/ensure-env.mjs && prisma generate",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "db:generate": "prisma generate",
-    "db:push": "prisma db push --skip-generate",
-    "db:setup": "prisma generate && prisma db push --skip-generate --accept-data-loss",
+    "db:generate": "node scripts/ensure-env.mjs && prisma generate",
+    "db:push": "node scripts/ensure-env.mjs && prisma db push --skip-generate",
+    "db:setup": "node scripts/ensure-env.mjs && prisma generate && prisma db push --skip-generate --accept-data-loss",
     "db:seed": "tsx scripts/seed.ts",
     "db:reset": "rm -f prisma/dev.db && npm run db:setup && npm run db:seed",
     "test": "vitest run",
@@ -23,7 +23,9 @@
     "backtest": "python3 scripts/backtest.py",
     "survivor-backtest": "python3 scripts/survivor_backtest.py",
     "verify": "npm run typecheck && npm run test && npm run build",
-    "prestart": "npm run db:setup && tsx scripts/ensure-seeded.ts"
+    "prestart": "npm run db:setup && tsx scripts/ensure-seeded.ts",
+    "env:setup": "node scripts/ensure-env.mjs",
+    "pretest": "node scripts/ensure-env.mjs && prisma generate"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

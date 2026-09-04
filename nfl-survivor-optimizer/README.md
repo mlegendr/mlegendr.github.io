@@ -232,10 +232,15 @@ the app itself does not need it).
 git clone <this repo>
 cd nfl-survivor-optimizer
 npm install
-cp .env.example .env      # optional: every key in it is optional
 ```
 
 `npm install` needs no API keys and downloads no browsers.
+
+There is no manual configuration step: the first command that touches the database
+(`npm run dev`, `npm run build`, `npm test`, any `db:*` script) creates `.env` from
+`.env.example` if it does not already exist. That file is required — the Prisma CLI reads
+`DATABASE_URL` from it and fails with `P1012: Environment variable not found: DATABASE_URL`
+without it — but every API key inside it is optional. An existing `.env` is never overwritten.
 
 ---
 
@@ -270,7 +275,11 @@ npm start
 
 ## API setup
 
-All keys are **optional**. The app runs in a clearly-labelled reduced mode without them.
+`.env` is created for you on first run (see [Installation](#installation)); if you want it
+earlier, `npm run env:setup` or `cp .env.example .env` both work.
+
+`DATABASE_URL` is required and is already filled in. Every **API key** is optional — the app runs
+in a clearly-labelled reduced mode without them.
 
 Edit `.env`:
 
