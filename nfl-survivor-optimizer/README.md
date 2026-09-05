@@ -226,8 +226,18 @@ Every observation is stored with a timestamp, and every recommendation exposes `
 
 ## Installation
 
-Requirements: **Node.js 20+** (22 recommended) and **Python 3.9+** (only for training/backtesting;
-the app itself does not need it).
+**Node.js 20.9 or newer is required** (22 LTS recommended). Check before anything else:
+
+```bash
+node -v
+```
+
+Node 18 does not merely warn — it breaks the install in a way that only shows up later. Next.js 15
+refuses to start, and npm silently skips Tailwind's native binding (`@tailwindcss/oxide` declares
+`engines: { node: ">= 20" }`), so the first page load dies with `Cannot find native binding`. An
+`.nvmrc` is included: `nvm use` picks the right version.
+
+Python 3.9+ is optional and only needed for training and backtesting.
 
 ```bash
 git clone <this repo>
@@ -575,6 +585,21 @@ that has already kicked off unless you pass `"force": true`.
 
 ## Troubleshooting
 
+### `You are using Node.js 18.x. For Next.js, Node.js version ">=20.9.0" is required.`
+
+Upgrade Node, then reinstall — Node 18 also caused npm to skip Tailwind's native binary, and that
+does not repair itself when you upgrade:
+
+```bash
+nvm install 22 && nvm use 22        # or: brew install node@22
+rm -rf node_modules package-lock.json .next
+npm install
+npm run dev
+```
+
+If your shell shows `(base)`, conda may be supplying Node. Check with `which node`; either
+`conda deactivate` first or `conda install -c conda-forge 'nodejs>=22'`.
+
 ### `Cannot find native binding` when the page loads
 
 ```
@@ -583,19 +608,31 @@ Error: Cannot find native binding. npm has a bug related to optional dependencie
 ./src/app/globals.css ... postcss-loader ...
 ```
 
-Tailwind v4 compiles CSS through a native Rust binary (`@tailwindcss/oxide`, plus
-`lightningcss`), shipped as one optional dependency per platform. npm sometimes skips
-installing the one for your machine — a long-standing npm bug, not a missing lockfile entry
-(`package-lock.json` here contains all of them, macOS arm64/x64 included).
+**Check your Node version first — this is usually not the npm bug the message blames.**
 
 ```bash
-rm -rf node_modules package-lock.json .next
-npm install
-npm run dev
+node -v      # must be >= 20.9
 ```
 
-Deleting `.next` matters: the failed CSS build is cached there and will be replayed otherwise.
-If it still fails, `npm cache clean --force` and repeat.
+Tailwind v4 compiles CSS through a platform-specific Rust binary (`@tailwindcss/oxide`, plus
+`lightningcss`), shipped as one optional dependency per platform. `@tailwindcss/oxide` declares
+`engines: { node: ">= 20" }`, so on Node 18 npm treats the binary as an unmet optional dependency
+and skips it without failing the install. The error then appears much later, at first page load,
+pointing at an unrelated npm bug.
+
+```bash
+nvm install 22 && nvm use 22        # or: brew install node@22
+rm -rf node_modules package-lock.json .next
+npm install
+```
+
+The reinstall is required: upgrading Node alone does not fetch the binary npm already skipped.
+
+If `node -v` was already 20.9+, then it genuinely is [npm/cli#4828](https://github.com/npm/cli/issues/4828)
+— the same `rm -rf` and reinstall fixes it. `package-lock.json` is not the problem; it carries every
+platform variant, macOS arm64/x64 included, each with a resolved URL and integrity hash.
+
+Deleting `.next` matters either way: the failed CSS build is cached there and will be replayed.
 
 ### `P1012: Environment variable not found: DATABASE_URL`
 

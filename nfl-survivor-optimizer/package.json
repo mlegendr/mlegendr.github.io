@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "Survivor / Last Man Standing pool optimizer for the 2026 NFL regular season.",
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "scripts": {
     "predev": "npm run db:setup && tsx scripts/ensure-seeded.ts",
     "dev": "next dev",
