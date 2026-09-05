@@ -239,6 +239,8 @@ refuses to start, and npm silently skips Tailwind's native binding (`@tailwindcs
 
 Python 3.9+ is optional and only needed for training and backtesting.
 
+Next.js is pinned to 15.x on purpose — see [Troubleshooting](#troubleshooting) before upgrading it.
+
 ```bash
 git clone <this repo>
 cd nfl-survivor-optimizer
@@ -633,6 +635,26 @@ If `node -v` was already 20.9+, then it genuinely is [npm/cli#4828](https://gith
 platform variant, macOS arm64/x64 included, each with a resolved URL and integrity hash.
 
 Deleting `.next` matters either way: the failed CSS build is cached there and will be replayed.
+
+### Buttons do nothing / `npm audit fix --force` upgraded Next to 16
+
+`npm audit fix --force` upgrades across major versions and will move this project to Next 16,
+which `package.json` does not pin. On Next 16 the production build is fine, but **`next dev` can
+fail to hydrate**: the page renders, yet nothing is clickable — Confirm does not respond, settings
+toggles do not save. Two end-to-end tests catch exactly this.
+
+Check what you actually have, and reinstall from the lockfile if it drifted:
+
+```bash
+node -e "console.log(require('next/package.json').version)"   # expect 15.5.x
+
+git checkout package.json package-lock.json
+rm -rf node_modules .next
+npm install
+```
+
+Never run `npm audit fix --force` here. The advisories it reports are in dev-only tooling, and it
+trades them for an untested major upgrade. Plain `npm audit fix` (no `--force`) is safe.
 
 ### `P1012: Environment variable not found: DATABASE_URL`
 

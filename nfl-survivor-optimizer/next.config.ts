@@ -1,8 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  eslint: { ignoreDuringBuilds: false },
-  // Prisma must stay external to the server bundle so the query engine binary resolves.
+  // Prisma must stay external to the server bundle so the query engine binary
+  // resolves at runtime.
   serverExternalPackages: ["@prisma/client", ".prisma/client"],
 };
 

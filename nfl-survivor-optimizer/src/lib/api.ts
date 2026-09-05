@@ -16,7 +16,6 @@ export async function guard<T>(fn: () => Promise<T>): Promise<NextResponse> {
     return ok(await fn());
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    // eslint-disable-next-line no-console
     console.error("[api]", message);
     return fail(message, 500);
   }

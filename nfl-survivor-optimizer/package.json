@@ -12,7 +12,7 @@
     "prebuild": "node scripts/ensure-env.mjs && prisma generate",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "db:generate": "node scripts/ensure-env.mjs && prisma generate",
     "db:push": "node scripts/ensure-env.mjs && prisma db push --skip-generate",
@@ -43,6 +43,7 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.7",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^22",
