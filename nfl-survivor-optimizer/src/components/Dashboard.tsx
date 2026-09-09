@@ -15,6 +15,7 @@ import { InjuryPanel } from "./InjuryPanel";
 import { DataStatusPanel } from "./DataStatusPanel";
 import { RobustnessPanel } from "./RobustnessPanel";
 import { PoolStrategyPanel } from "./PoolStrategyPanel";
+import { PoolEquityView } from "./gametheory/PoolEquityView";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui";
 
 export function Dashboard({ initial }: { initial: AnalysisSnapshot }) {
@@ -139,6 +140,10 @@ export function Dashboard({ initial }: { initial: AnalysisSnapshot }) {
           <DataStatusPanel snapshot={snapshot} />
         </div>
       </div>
+
+      {/* The pool-equity optimizer sits alongside the survival optimizer, never
+          replacing it. Both recommendations stay visible so they can be compared. */}
+      <PoolEquityView snapshot={snapshot} horizonKey={horizon} />
 
       <RankingsTable
         snapshot={snapshot}

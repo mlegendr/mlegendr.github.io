@@ -12,60 +12,60 @@ datasource db {
 
 /// One canonical row per NFL franchise. `abbr` is the join key used everywhere.
 model Team {
-  abbr        String  @id
-  name        String
-  location    String
-  nickname    String
-  conference  String
-  division    String
-  primary     String
-  secondary   String
-  stadium     String
-  stadiumLat  Float
-  stadiumLon  Float
-  roofType    String
+  abbr       String @id
+  name       String
+  location   String
+  nickname   String
+  conference String
+  division   String
+  primary    String
+  secondary  String
+  stadium    String
+  stadiumLat Float
+  stadiumLon Float
+  roofType   String
 
-  homeGames   Game[]  @relation("homeTeam")
-  awayGames   Game[]  @relation("awayTeam")
-  picks       Pick[]
+  homeGames Game[] @relation("homeTeam")
+  awayGames Game[] @relation("awayTeam")
+  picks     Pick[]
 }
 
 /// A scheduled or completed NFL game, normalized from the schedule provider.
 model Game {
-  id             String   @id // nflverse game_id, e.g. 2026_01_NE_SEA
-  season         Int
-  week           Int
-  seasonType     String   @default("REG") // REG | POST
-  kickoff        DateTime
-  homeTeamAbbr   String
-  awayTeamAbbr   String
-  neutralSite    Boolean  @default(false)
-  stadium        String?
-  roof           String?
-  surface        String?
-  divisionGame   Boolean  @default(false)
-  homeRest       Int?
-  awayRest       Int?
-  homeScore      Int?
-  awayScore      Int?
-  completed      Boolean  @default(false)
-  overtime       Boolean  @default(false)
+  id               String   @id // nflverse game_id, e.g. 2026_01_NE_SEA
+  season           Int
+  week             Int
+  seasonType       String   @default("REG") // REG | POST
+  kickoff          DateTime
+  homeTeamAbbr     String
+  awayTeamAbbr     String
+  neutralSite      Boolean  @default(false)
+  stadium          String?
+  roof             String?
+  surface          String?
+  divisionGame     Boolean  @default(false)
+  homeRest         Int?
+  awayRest         Int?
+  homeScore        Int?
+  awayScore        Int?
+  completed        Boolean  @default(false)
+  overtime         Boolean  @default(false)
   // Opening/closing numbers shipped with the schedule feed (used as a fallback
   // market when The Odds API is not configured).
   refHomeMoneyline Int?
   refAwayMoneyline Int?
   refSpreadLine    Float?
 
-  source         String   @default("nflverse")
-  observedAt     DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  source     String   @default("nflverse")
+  observedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  homeTeam       Team     @relation("homeTeam", fields: [homeTeamAbbr], references: [abbr])
-  awayTeam       Team     @relation("awayTeam", fields: [awayTeamAbbr], references: [abbr])
+  homeTeam Team @relation("homeTeam", fields: [homeTeamAbbr], references: [abbr])
+  awayTeam Team @relation("awayTeam", fields: [awayTeamAbbr], references: [abbr])
 
-  odds           OddsSnapshot[]
-  weather        WeatherSnapshot[]
-  predictions    PredictionSnapshot[]
+  odds        OddsSnapshot[]
+  weather     WeatherSnapshot[]
+  predictions PredictionSnapshot[]
 
   @@index([season, week])
   @@index([kickoff])
@@ -73,103 +73,103 @@ model Game {
 
 /// De-vigged, multi-book consensus market probability for one game at one moment.
 model OddsSnapshot {
-  id                   Int      @id @default(autoincrement())
-  gameId               String
-  homeWinProbability   Float
-  awayWinProbability   Float
-  bookCount            Int
-  homeMoneyline        Int?
-  awayMoneyline        Int?
-  spread               Float?   // negative == home favoured, in points
-  total                Float?
-  dispersion           Float    @default(0) // stdev of per-book fair home prob
-  source               String
-  oddsLastUpdated      DateTime
-  observedAt           DateTime @default(now())
+  id                 Int      @id @default(autoincrement())
+  gameId             String
+  homeWinProbability Float
+  awayWinProbability Float
+  bookCount          Int
+  homeMoneyline      Int?
+  awayMoneyline      Int?
+  spread             Float? // negative == home favoured, in points
+  total              Float?
+  dispersion         Float    @default(0) // stdev of per-book fair home prob
+  source             String
+  oddsLastUpdated    DateTime
+  observedAt         DateTime @default(now())
 
-  game                 Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
 
   @@index([gameId, observedAt])
 }
 
 /// Forecast for one game; only stored for outdoor stadiums inside the forecast window.
 model WeatherSnapshot {
-  id             Int      @id @default(autoincrement())
-  gameId         String
-  temperatureF   Float?
-  windMph        Float?
-  windGustMph    Float?
-  precipChance   Float?
-  precipInches   Float?
-  isIndoor       Boolean  @default(false)
-  source         String   @default("open-meteo")
-  observedAt     DateTime @default(now())
+  id           Int      @id @default(autoincrement())
+  gameId       String
+  temperatureF Float?
+  windMph      Float?
+  windGustMph  Float?
+  precipChance Float?
+  precipInches Float?
+  isIndoor     Boolean  @default(false)
+  source       String   @default("open-meteo")
+  observedAt   DateTime @default(now())
 
-  game           Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
 
   @@index([gameId, observedAt])
 }
 
 /// A player's injury designation from a provider or from a manual override.
 model InjuryReport {
-  id                   Int      @id @default(autoincrement())
-  season               Int
-  week                 Int
-  teamAbbr             String
-  playerName           String
-  position             String
-  status               String   // OUT | DOUBTFUL | QUESTIONABLE | IR | PROBABLE | ACTIVE
+  id                    Int      @id @default(autoincrement())
+  season                Int
+  week                  Int
+  teamAbbr              String
+  playerName            String
+  position              String
+  status                String // OUT | DOUBTFUL | QUESTIONABLE | IR | PROBABLE | ACTIVE
   practiceParticipation String?
-  depthChartRank       Int?
-  isStarter            Boolean  @default(false)
-  note                 String?
-  impact               String   @default("LOW") // LOW | MODERATE | HIGH | CRITICAL
-  impactScore          Float    @default(0)
-  source               String   // sportsdataio | sleeper | manual
-  manualOverride       Boolean  @default(false)
-  observedAt           DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  depthChartRank        Int?
+  isStarter             Boolean  @default(false)
+  note                  String?
+  impact                String   @default("LOW") // LOW | MODERATE | HIGH | CRITICAL
+  impactScore           Float    @default(0)
+  source                String // sportsdataio | sleeper | manual
+  manualOverride        Boolean  @default(false)
+  observedAt            DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   @@index([season, week, teamAbbr])
 }
 
 /// Everything the model produced for one game, so the UI can explain itself later.
 model PredictionSnapshot {
-  id                  Int      @id @default(autoincrement())
-  gameId              String
-  season              Int
-  week                Int
-  homeTeamAbbr        String
-  awayTeamAbbr        String
-  marketProbHome      Float?
-  modelProbHome       Float
-  finalProbHome       Float
-  marketWeight        Float
-  injuryAdjustment    Float    @default(0)
-  weatherAdjustment   Float    @default(0)
-  confidence          String   @default("MEDIUM")
-  confidenceScore     Float    @default(0.5)
-  dataQuality         String   @default("OK")
-  horizonWeeks        Int      @default(0)
-  factorsJson         String   @default("{}")
-  createdAt           DateTime @default(now())
+  id                Int      @id @default(autoincrement())
+  gameId            String
+  season            Int
+  week              Int
+  homeTeamAbbr      String
+  awayTeamAbbr      String
+  marketProbHome    Float?
+  modelProbHome     Float
+  finalProbHome     Float
+  marketWeight      Float
+  injuryAdjustment  Float    @default(0)
+  weatherAdjustment Float    @default(0)
+  confidence        String   @default("MEDIUM")
+  confidenceScore   Float    @default(0.5)
+  dataQuality       String   @default("OK")
+  horizonWeeks      Int      @default(0)
+  factorsJson       String   @default("{}")
+  createdAt         DateTime @default(now())
 
-  game                Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
 
   @@index([season, week])
 }
 
 /// A survivor entry. Most users have exactly one, but multiple entries are supported.
 model Pool {
-  id          String   @id @default(cuid())
-  name        String   @default("My Survivor Pool")
-  season      Int      @default(2026)
-  isActive    Boolean  @default(true)
-  settingsJson String  @default("{}")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(cuid())
+  name         String   @default("My Survivor Pool")
+  season       Int      @default(2026)
+  isActive     Boolean  @default(true)
+  settingsJson String   @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  picks       Pick[]
+  picks Pick[]
 }
 
 /// One weekly selection. Only `confirmed` picks are hard constraints for the optimizer.
@@ -188,8 +188,8 @@ model Pick {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  pool          Pool     @relation(fields: [poolId], references: [id], onDelete: Cascade)
-  team          Team     @relation(fields: [teamAbbr], references: [abbr])
+  pool Pool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamAbbr], references: [abbr])
 
   @@unique([poolId, season, week])
   @@index([poolId, season])
@@ -197,58 +197,133 @@ model Pick {
 
 /// User-supplied corrections to any model input. Always surfaced as "Manual Override".
 model ManualOverride {
-  id         String   @id @default(cuid())
-  season     Int
-  week       Int?
-  scope      String   // WIN_PROBABILITY | SPREAD | MONEYLINE | INJURY | CURRENT_WEEK
-  gameId     String?
-  teamAbbr   String?
-  valueJson  String
-  note       String?
-  active     Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(cuid())
+  season    Int
+  week      Int?
+  scope     String // WIN_PROBABILITY | SPREAD | MONEYLINE | INJURY | CURRENT_WEEK
+  gameId    String?
+  teamAbbr  String?
+  valueJson String
+  note      String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([season, week, scope])
 }
 
 /// Last successful/failed fetch per provider, powering the Data Status panel.
 model ProviderStatus {
-  id            String   @id // e.g. "odds", "schedule"
-  provider      String
-  label         String
-  ok            Boolean  @default(true)
-  degraded      Boolean  @default(false)
-  message       String?
-  detailJson    String   @default("{}")
-  lastAttempt   DateTime @default(now())
-  lastSuccess   DateTime?
-  updatedAt     DateTime @updatedAt
+  id          String    @id // e.g. "odds", "schedule"
+  provider    String
+  label       String
+  ok          Boolean   @default(true)
+  degraded    Boolean   @default(false)
+  message     String?
+  detailJson  String    @default("{}")
+  lastAttempt DateTime  @default(now())
+  lastSuccess DateTime?
+  updatedAt   DateTime  @updatedAt
 }
 
 /// Generic TTL cache so we do not burn provider quota (raw payloads, model artifacts).
 model CacheEntry {
-  key        String   @id
-  value      String
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
+  key       String   @id
+  value     String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 
   @@index([expiresAt])
 }
 
 /// Team ratings after each completed week; the model's memory between runs.
 model TeamRating {
-  id            Int      @id @default(autoincrement())
-  season        Int
-  week          Int      // ratings valid *entering* this week
-  teamAbbr      String
-  elo           Float
-  offEpa        Float    @default(0)
-  defEpa        Float    @default(0)
-  qbAdjustment  Float    @default(0)
-  gamesPlayed   Int      @default(0)
-  updatedAt     DateTime @updatedAt
+  id           Int      @id @default(autoincrement())
+  season       Int
+  week         Int // ratings valid *entering* this week
+  teamAbbr     String
+  elo          Float
+  offEpa       Float    @default(0)
+  defEpa       Float    @default(0)
+  qbAdjustment Float    @default(0)
+  gamesPlayed  Int      @default(0)
+  updatedAt    DateTime @updatedAt
 
   @@unique([season, week, teamAbbr])
   @@index([season, week])
+}
+
+// ---------------------------------------------------------------------------
+// Multi-entry pool game theory.
+//
+// The competitive unit is a PoolEntry, never a human: one person may own
+// several entries, and each carries its own independent pick history and
+// remaining-team inventory. The user's own position is itself a PoolEntry
+// (isUser = true), kept in sync with the legacy `Pick` table so the survival
+// optimizer keeps behaving exactly as before.
+// ---------------------------------------------------------------------------
+
+/// One survivor entry in the pool — the user's or an opponent's.
+model PoolEntry {
+  id                   String   @id @default(cuid())
+  poolId               String
+  season               Int
+  displayName          String
+  /// Optional human owner. Several entries may share an owner and still keep
+  /// completely independent inventories.
+  ownerName            String?
+  isUser               Boolean  @default(false)
+  status               String   @default("ACTIVE") // ACTIVE | ELIMINATED | UNKNOWN | WINNER
+  eliminatedWeek       Int?
+  eliminationReason    String?
+  /// When true, automatic elimination detection will not overwrite `status`.
+  manualStatusOverride Boolean  @default(false)
+  notes                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  picks EntryPick[]
+
+  @@unique([poolId, season, displayName])
+  @@index([poolId, season, status])
+}
+
+/// One weekly selection by one entry.
+model EntryPick {
+  id          String   @id @default(cuid())
+  poolEntryId String
+  season      Int
+  week        Int
+  teamAbbr    String
+  gameId      String?
+  pickSource  String   @default("USER_ENTERED") // USER_ENTERED | CSV_IMPORT | MANUAL_OVERRIDE
+  pickStatus  String   @default("PENDING") // PENDING | WIN | LOSS | TIE
+  /// A current-week pick the user has actually observed, as opposed to one the
+  /// opponent model predicts. Known picks override the predicted distribution.
+  isKnown     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  entry PoolEntry @relation(fields: [poolEntryId], references: [id], onDelete: Cascade)
+
+  @@unique([poolEntryId, season, week])
+  @@index([season, week, teamAbbr])
+}
+
+/// Everything behind one recommendation, frozen so it stays reproducible after
+/// odds and injuries move. Also the pre-lock ownership prediction that the
+/// predicted-vs-actual report grades later.
+model RecommendationSnapshot {
+  id              String   @id @default(cuid())
+  poolId          String
+  season          Int
+  week            Int
+  kind            String   @default("PRE_LOCK") // PRE_LOCK | AD_HOC
+  modelVersion    String   @default("1")
+  simulationSeed  Int      @default(0)
+  simulationCount Int      @default(0)
+  payloadJson     String
+  createdAt       DateTime @default(now())
+
+  @@index([poolId, season, week])
 }

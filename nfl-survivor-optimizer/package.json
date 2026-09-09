@@ -29,7 +29,8 @@
     "prestart": "npm run db:setup && tsx scripts/ensure-seeded.ts",
     "env:setup": "node scripts/ensure-env.mjs",
     "pretest": "node scripts/ensure-env.mjs && prisma generate",
-    "postinstall": "node scripts/check-native-deps.mjs"
+    "postinstall": "node scripts/check-native-deps.mjs",
+    "pool-equity-backtest": "python3 scripts/pool_equity_backtest.py"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

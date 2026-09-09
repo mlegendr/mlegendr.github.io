@@ -28,6 +28,11 @@ export default defineConfig({
         env: {
           DATABASE_URL: "file:./e2e.db",
           NFL_SEASON: "2026",
+          // Pin "now" so the suite is deterministic: market weight decays with
+          // odds staleness, so an unpinned clock makes identical-seed runs drift
+          // by fractions of a percent. Just before week 1 kicks off, so nothing
+          // has started and every team is selectable.
+          APP_CLOCK: "2026-09-08T12:00:00Z",
           // Sentinel values: one test asserts these never appear in any page or
           // API response. They are deliberately invalid, so the odds provider
           // fails and the app must fall back gracefully.

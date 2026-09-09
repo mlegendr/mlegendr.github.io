@@ -27,6 +27,8 @@ read server-side only and never reach browser JavaScript.
 - [Model training](#model-training)
 - [Backtesting](#backtesting)
 - [Testing](#testing)
+- [Multi-Entry Pool Game Theory](#multi-entry-pool-game-theory)
+- [Using the pool-equity optimizer](#using-the-pool-equity-optimizer)
 - [Troubleshooting](#troubleshooting)
 - [Project layout](#project-layout)
 - [HTTP API](#http-api)
@@ -526,6 +528,278 @@ If your environment ships its own Chromium instead of the build Playwright would
 
 ```bash
 PLAYWRIGHT_CHROMIUM_PATH=/path/to/chrome npm run test:e2e
+```
+
+---
+
+## Multi-Entry Pool Game Theory
+
+The survival optimizer above answers one question: *how likely am I to stay alive?* That is not the
+same as *how likely am I to win this pool*, and the difference is the entire subject of this
+section. Both optimizers run, both stay visible, and neither replaces the other — when they
+disagree, the disagreement is itself information.
+
+### 1. Why maximising survival is different from maximising pool victory
+
+Survivor pools pay the last entry standing, not the entry that survived longest on average. If
+eleven of your twelve rivals take Buffalo and Buffalo wins, you have survived — and gained nothing,
+because so has everyone else. If Buffalo loses and you were on Denver, the pool empties and you are
+close to a sole winner.
+
+So the value of a pick depends on what everyone else picks. A 4-point sacrifice in weekly survival
+can be worth it, or it can be a disaster; only simulating the tournament tells you which.
+
+### 2. Why the app models entries, not humans
+
+The competitive unit is a **pool entry**. One person may own several, and each carries its own
+independent pick history and remaining-team inventory. Alice Entry 1 using Buffalo tells you nothing
+about whether Alice Entry 2 can still use it.
+
+The vocabulary is used consistently: *pool entry*, *opponent entry*, *active entry*, *eliminated
+entry*, *entry pick*, *entry inventory*. "Player" is reserved for NFL athletes.
+
+Your own position is itself a `PoolEntry` (`isUser = true`), kept in sync with the legacy `Pick`
+table by a one-way projection — so nothing here can change what the survival optimizer sees.
+
+### 3. How historical picks determine each entry's inventory
+
+Import each entry's prior selections (below) and the app derives everything else:
+
+```
+remaining teams  =  all 32 NFL teams  −  teams this entry has already used
+```
+
+Elimination is computed from real results, not asserted: every entry pick is graded WIN / LOSS / TIE
+against final scores, an entry is eliminated at the **first** week it lost, and the reason records
+the scoreline — `Picked DAL; DAL lost to PHI 17–24`. Unusual pool rulings can be corrected by hand,
+and a manual override is always labelled as one.
+
+### 4. How opponent picks are forecast
+
+Before the deadline you know an entry's history but not its current selection, so the app predicts a
+*distribution* over the teams it can legally still use:
+
+```
+U(entry, team, week) = β1·winProbability + β2·safetyRank + β3·futureValueCost
+                     + β4·scheduleScarcity + β5·publicPopularity + β6·isHome
+
+P(team) = exp(U / temperature) / Σ exp(U / temperature)  over legal teams only
+```
+
+The coefficients are fitted by regularized multinomial logit on the pool's own observed decisions.
+Hard constraints are applied *before* the softmax: a team already used by that entry, on bye, or
+whose game has kicked off gets probability zero and never appears.
+
+**Information hierarchy** (§44), highest priority first: a known current pick → hard availability
+constraints → this pool's actual behaviour → entry-specific behaviour with shrinkage → current NFL
+win probabilities → future team value → optional public popularity → generic priors.
+
+### 5. Why opponent behaviour is modelled as uncertain
+
+No opponent plays optimally, and none plays randomly. The temperature keeps every legal option at
+non-zero probability, and entry-specific deviations are **shrunk toward pool-average behaviour**:
+
+```
+weight = n / (n + shrinkageStrength)     # default strength 6
+```
+
+With three observed decisions an entry keeps only a third of its own estimated deviation. That is
+deliberate: fitting a personality to three picks is overfitting, and the inspector says so —
+*"Entry-specific confidence: LOW — 3 decisions observed. Forecast remains anchored to pool-average
+behaviour."* Descriptions are statistical (*"selected among the week's safest options in 3 of 4
+observed decisions"*), never psychological.
+
+When there is no history at all the model falls back to documented cold-start priors and labels
+itself as such.
+
+### 6–7. How NFL outcomes are simulated, and why entries on the same team are correlated
+
+This is the correctness requirement the whole tournament rests on. Each NFL game is sampled **once
+per simulated week**, and every entry that picked into that game reads the same result:
+
+| Situation | Consequence |
+| --- | --- |
+| You and Entry A both pick DAL | You both advance, or you both go out. Always. |
+| You pick DAL, Entry B picks NYG | Exactly one of you survives. Never both. |
+| Entries A, B and C all pick BUF | A Buffalo loss eliminates all three simultaneously. |
+
+Simulating each entry's survival independently would destroy exactly the correlation that makes pool
+strategy interesting — mass elimination is the mechanism by which fading a popular team pays. All
+three properties are enforced by tests (`tests/gt-correlation.test.ts`).
+
+Game outcomes are drawn from a hash of `(seed, simIndex, week, gameIndex)` rather than a sequential
+stream, so **every candidate is evaluated on identical simulated worlds**. That removes most of the
+Monte Carlo noise from the *difference* between two candidates, which is the quantity you actually
+care about.
+
+### 8. What Pool Win Probability means
+
+The fraction of simulated tournaments in which you finish among the winners — sole or shared. It is
+a simulation frequency, not a score, and it is not your win probability this week.
+
+### 9. What Expected Prize Equity means
+
+Your expected share of the prize:
+
+```
+equity  =  1 / (number of co-winners)   in simulations you win
+        =  0                            otherwise
+```
+
+### 10. How tied winners affect prize equity
+
+| Outcome | Contribution to equity |
+| --- | --- |
+| 10% chance of sole victory | 10% |
+| 6% chance of tying with one other entry | 3% |
+| 3% chance of a three-way tie | 1% |
+
+This is why **Expected Prize Equity is the default objective**: matching the whole field on the
+chalk pick can produce a high pool win probability made almost entirely of ten-way ties. The
+objective is configurable (Pool Win Probability, Sole Victory, Any Victory, Expected Prize Equity),
+and if your pool plays on until exactly one entry remains there are no shared prizes, so the app
+reports Pool Win Probability instead — with that rule the two coincide.
+
+### 11. What Relative Future Value means
+
+The survival optimizer already computes what *you* give up by spending a team. Relative future value
+adds the competitive half — whether your rivals could have spent it too:
+
+```
+Opponent Access Rate = active opposing entries that can still use the team
+                     / active opposing entries
+```
+
+Holding Buffalo when 8 of 10 rivals have already used it is a real asset. Holding it when all 10
+still have it is not. The app reports **Inventory Advantage**, **Inventory Scarcity** and
+**Opponent Access Rate** separately and feeds them to the simulator — they are never fused into a
+hidden score.
+
+### 12. Why being contrarian does not automatically help
+
+A low-ownership team is not automatically valuable. Strategic value requires the popular
+alternatives to actually lose, and requires your team to actually win. There is **no contrarian
+bonus and no game-theory multiplier anywhere in this code** — the tournament resolves the tradeoff.
+
+Two tests pin this down. With nine rivals certain to take Team A (80%) and Team B at 79%, the
+simulator prefers B. Change B to 55% against the same field and it prefers A. Same concentration,
+opposite recommendation, no rule changed.
+
+### 13. How the model improves with more pool history
+
+Every pre-lock run can freeze a `RecommendationSnapshot`: inventories, odds timestamps, injuries,
+per-entry pick distributions, projected ownership, and every candidate's Pool Win Probability and
+Expected Prize Equity. Once the week's real picks are imported, the **Retrospective** page grades
+the forecast — predicted vs actual ownership, and the per-entry log loss the model assigned to what
+actually happened. Snapshots are never overwritten.
+
+### 14. Why there is no generic "game theory score"
+
+Because it would hide the tradeoff. Ranking is always by a simulated quantity — Pool Win Probability
+or Expected Prize Equity — and every other number (projected ownership, expected overlap, fade
+leverage, inventory edge) is presented as itself, for explanation only.
+
+### 15. Limitations
+
+- **Predicting human entry behaviour is the weakest link.** The football probabilities have a
+  measurable hold-out Brier score; opponent behaviour does not. Football confidence and
+  opponent-model confidence are therefore reported **separately**, and pool-equity confidence is
+  capped by the weaker of the two.
+- **Sensitivity analysis is not optional reading.** Every recommendation is re-simulated under a
+  more analytical field, a safety-first field and a higher-randomness field. A pick that only wins
+  under one assumption is flagged LOW robustness.
+- **Monte Carlo noise is real.** When the gap between two candidates is inside the reported standard
+  error, the explanation says so and tells you to raise the simulation budget.
+- **The user's simulated future decisions use an approximate rollout**, not a full assignment
+  re-solve every simulated week — that would be orders of magnitude too slow. The same policy is
+  applied to every candidate, so comparisons stay fair, and each run lists its approximations.
+- **Public ownership is a prior, never a substitute.** If 40% of the country is on Buffalo but 70%
+  of your rivals have already used it, Buffalo cannot be 40% owned in *your* pool. Private
+  constraints always win. The app will not scrape ownership data; supply it manually or leave it out.
+
+---
+
+## Using the pool-equity optimizer
+
+### Importing pool-entry history
+
+Go to **Pool State** and paste or upload a CSV. Long format:
+
+```csv
+entry,week,team
+Me,1,PHI
+Entry A,1,BAL
+Entry B,1,CIN
+Me,2,DAL
+Entry A,2,KC
+```
+
+Wide format works too:
+
+```csv
+entry,week1,week2,week3,week4
+Me,PHI,DAL,BUF,
+Entry A,BAL,KC,,
+```
+
+With an optional owner column, entries stay independent while keeping the owner's identity:
+
+```csv
+entry,owner,week,team
+Alice Entry 1,Alice,1,BAL
+Alice Entry 2,Alice,1,BUF
+Bob Entry 1,Bob,1,CIN
+```
+
+Team names are normalised automatically (`KC`, `Kansas City Chiefs`, `OAK`, `WSH` all resolve). Set
+**"Which CSV entry is yours?"** to the name of your own row (e.g. `Me`) so it merges into your
+existing entry instead of creating a rival.
+
+You always get a **preview before anything is written**, and nothing is silently discarded. Blocking
+errors: unknown teams, impossible weeks, a team reused by the same entry, conflicting selections for
+one entry-week, a bye-week pick, a missing entry name. Warnings that do not block: exact duplicate
+rows, and picks recorded after an entry was eliminated.
+
+Or via the API:
+
+```bash
+curl -X POST http://localhost:3000/api/entries/import \
+  -H 'content-type: application/json' \
+  -d '{"csv":"entry,week,team\nEntry A,1,BAL","commit":false}'   # preview
+```
+
+### Updating actual entry picks each week
+
+1. Before the deadline, run the tournament with **Snapshot** enabled (or
+   `POST /api/pool-equity/snapshot`). This freezes the pre-lock prediction.
+2. Confirm your own pick on the dashboard as usual.
+3. Once rivals' picks are visible, record them — either by re-importing that week's CSV, or by
+   setting a **known pick** on an entry in the inspector. A known pick replaces that entry's
+   predicted distribution with certainty and immediately updates projected ownership and every
+   candidate's equity.
+4. Advance the week. Inventories, elimination status, the behaviour model and every tournament
+   number update automatically.
+5. Check **Retrospective** to see how the forecast actually did.
+
+### Interpreting the two recommendations
+
+| | Survival pick | Pool-equity pick |
+| --- | --- | --- |
+| Question | How likely am I to stay alive? | How likely am I to win this pool? |
+| Ignores other entries | Yes, by design | No — models every active entry |
+| Ranked by | Optimised path survival probability | Expected Prize Equity (or your chosen objective) |
+| Source | Exact no-repeat assignment solver | Multi-entry Monte Carlo tournament |
+
+When they agree, that is a genuinely strong signal. When they differ, the app shows the immediate
+survival cost in percentage points beside the pool-equity gain, and explains which is which. The
+increased short-term risk of a game-theory pick is never hidden.
+
+### Commands
+
+```bash
+npm test                                    # includes 76 game-theory tests
+npm run pool-equity-backtest                # historical multi-entry pool simulation
+python3 scripts/pool_equity_backtest.py --seasons 2022-2025 --pool-sizes 5,20,100
 ```
 
 ---
