@@ -1675,6 +1675,17 @@ function wireManageTab() {
     commit({ ...app.state, gameweek }, `setting the gameweek to ${gameweek}`);
     renderAll();
   });
+  $('#apply-record').addEventListener('click', () => {
+    const bank = Math.round(Number($('#set-bank').value) * 10);
+    const freeTransfers = Number($('#set-ft').value);
+    if (!Number.isFinite(bank) || bank < 0) { toast('Bank must be zero or more.', 'error'); return; }
+    if (!Number.isInteger(freeTransfers) || freeTransfers < 0 || freeTransfers > MAX_FREE_TRANSFERS) {
+      toast(`Free transfers must be between 0 and ${MAX_FREE_TRANSFERS}.`, 'error'); return;
+    }
+    commit({ ...app.state, bank, freeTransfers }, 'correcting the bank and free transfers');
+    toast(`Bank ${money(bank)}, ${freeTransfers} free transfer(s).`, 'good');
+    renderAll();
+  });
   $('#export-state').addEventListener('click', () => exportState(app.state));
   $('#import-state').addEventListener('change', async (e) => {
     try {
@@ -1935,6 +1946,8 @@ function renderPredictedStatus() {
 
 function renderManageTab() {
   $('#set-gw').value = app.state.gameweek;
+  $('#set-bank').value = (app.state.bank / 10).toFixed(1);
+  $('#set-ft').value = app.state.freeTransfers;
 
   const chips = $('#chips-used');
   chips.replaceChildren();
