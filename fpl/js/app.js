@@ -12,7 +12,8 @@ import {
   GKP, DEF, MID, FWD, POSITIONS, BUDGET, MAX_FREE_TRANSFERS, CHIPS,
   SQUAD_SIZE, money, chipHalf,
 } from './rules.js';
-import { loadBestSnapshot, loadState, saveState, clearState, readSnapshotFile, exportState, importState } from './store.js';
+import { loadBestSnapshot, loadState, saveState, clearState, readSnapshotFile, exportState, importState,
+  loadHistory, saveHistory, HISTORY_LIMIT } from './store.js';
 import {
   emptyState, initialSquad, validateSquad, applyTransfers, declareChip,
   advanceGameweek, squadValue, squadPlayers, sellValue, isPreSeason, freeTransfersAvailable,
@@ -57,6 +58,7 @@ async function init() {
   app.source = loaded.source;
 
   app.state = loadState() ?? emptyState(app.snapshot.nextEvent ?? 1);
+  app.history = loadHistory();
   if (!loadState()) app.state.gameweek = app.snapshot.nextEvent ?? 1;
 
   describeDataSource(loaded);
@@ -101,7 +103,12 @@ function checkGameweekDrift() {
     + 'until you advance.', true, {
     label: behind === 1 ? `Advance to Gameweek ${next}` : `Advance ${behind} gameweeks`,
     onClick: () => {
-      while (app.state.gameweek < next) app.state = advanceGameweek(app.state);
+      const caughtUp = (() => {
+        let s = app.state;
+        while (s.gameweek < next) s = advanceGameweek(s);
+        return s;
+      })();
+      commit(caughtUp, `catching up to Gameweek ${next}`);
       app.lineup = null; app.planResult = null; app.pendingTransfers = [];
       $('#databanner').hidden = true;
       toast(`Caught up to Gameweek ${app.state.gameweek}. `
@@ -140,6 +147,36 @@ function hasSquad() { return app.state.picks.length === SQUAD_SIZE; }
  * disabled, a full quota - and a squad that is silently not being kept is the
  * worst way to find that out, so a failure is reported rather than logged.
  */
+/**
+ * Change the squad, remembering what it was first.
+ *
+ * Every action that alters the state goes through here, so anything the
+ * manager does can be taken back - including an applied transfer plan, which
+ * is otherwise irreversible without spending another transfer to undo it.
+ */
+function commit(next, label) {
+  app.history = [...(app.history ?? []), { label, at: new Date().toISOString(), state: app.state }]
+    .slice(-HISTORY_LIMIT);
+  app.state = next;
+  app.history = saveHistory(app.history);
+  return next;
+}
+
+/** Step back to the state before the last action. */
+function undo() {
+  const history = app.history ?? [];
+  const last = history.at(-1);
+  if (!last) { toast('Nothing to undo.'); return; }
+
+  app.history = saveHistory(history.slice(0, -1));
+  app.state = last.state;
+  // Anything derived from the old squad is now stale.
+  app.lineup = null;
+  app.planResult = null;
+  toast(`Undone: ${last.label}.`, 'good');
+  renderAll();
+}
+
 function persist() {
   const saved = saveState(app.state);
   app.lastSaved = saved ? new Date() : null;
@@ -167,8 +204,21 @@ function updateSaveStatus() {
   }
 }
 
+/** The undo button names what it would take back, so it is never a gamble. */
+function renderUndo() {
+  const button = $('#undo');
+  if (!button) return;
+  const last = (app.history ?? []).at(-1);
+  button.hidden = !last;
+  if (!last) return;
+  button.textContent = `Undo ${last.label}`;
+  button.title = `Go back to before ${last.label}`
+    + ((app.history.length > 1) ? ` — ${app.history.length} steps available` : '');
+}
+
 function renderMeta() {
   const { state, snapshot } = app;
+  renderUndo();
   $('#meta-gameweek').textContent = state.gameweek;
   $('#meta-transfers').textContent = isPreSeason(state)
     ? 'Unlimited'
@@ -361,7 +411,8 @@ function wireSquadTab() {
   });
   $('#chip-select').addEventListener('change', (e) => {
     try {
-      app.state = declareChip(app.state, e.target.value, app.snapshot);
+      commit(declareChip(app.state, e.target.value, app.snapshot),
+        e.target.value === 'none' ? 'clearing the chip' : `declaring ${CHIPS[e.target.value].name}`);
       const name = CHIPS[e.target.value].name;
       toast(e.target.value === 'none' ? 'Chip cleared.' : `${name} recorded for GW${app.state.gameweek}.`, 'good');
     } catch (err) {
@@ -714,16 +765,17 @@ function applyResolution(squadFile) {
 function confirmSquad() {
   try {
     const fresh = app.state.picks.length ? { ...app.state, picks: [], bank: 0 } : app.state;
-    app.state = initialSquad(fresh, app.builder, app.snapshot,
+    let built = initialSquad(fresh, app.builder, app.snapshot,
       { purchasePrices: app.purchasePrices ?? {} });
     if (app.recordedSelections) {
-      app.state = {
-        ...app.state,
+      built = {
+        ...built,
         savedXi: app.recordedSelections.startingXi,
         savedCaptain: app.recordedSelections.captain,
         savedVice: app.recordedSelections.viceCaptain,
       };
     }
+    commit(built, app.state.picks.length ? 'replacing the squad' : 'building the squad');
     app.builder = null;
     app.recordedSelections = null;
     app.purchasePrices = null;
@@ -905,10 +957,10 @@ function moveBench(id, delta) {
 
 function saveSubmission() {
   try {
-    app.state = recordSubmission(app.state, app.state.gameweek, {
+    commit(recordSubmission(app.state, app.state.gameweek, {
       ...app.draft,
       chip: app.state.activeChip,
-    });
+    }), `recording the Gameweek ${app.state.gameweek} side`);
     toast(`Side recorded for Gameweek ${app.state.gameweek}.`, 'good');
     renderAll();
   } catch (err) {
@@ -1196,13 +1248,23 @@ function wireTransfersTab() {
     pool: () => (hasSquad() ? squadPlayers(app.state, app.snapshot) : []),
     exclude: (p) => (app.state.protectedIds ?? []).includes(p.id),
     onPick: (player) => {
-      app.state = {
+      commit({
         ...app.state,
         protectedIds: [...(app.state.protectedIds ?? []), player.id],
-      };
+      }, `protecting ${player.label}`);
       app.planResult = null;
       renderAll();
     },
+  });
+  $('#undo').addEventListener('click', undo);
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+      // Not while typing into a field, where the browser's own undo belongs.
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      e.preventDefault();
+      undo();
+    }
   });
   $('#plan-run').addEventListener('click', runPlanner);
 }
@@ -1286,7 +1348,8 @@ function renderProtectedList() {
     const remove = document.createElement('button');
     remove.type = 'button'; remove.textContent = '×'; remove.title = `Stop protecting ${player.name}`;
     remove.addEventListener('click', () => {
-      app.state = { ...app.state, protectedIds: ids.filter((x) => x !== id) };
+      commit({ ...app.state, protectedIds: ids.filter((x) => x !== id) },
+        `unprotecting ${player.label}`);
       app.planResult = null;
       renderAll();
     });
@@ -1486,7 +1549,7 @@ function applyPlan(plan) {
       out: plan.transfersOut.map((p) => p.id),
       in: plan.transfersIn.map((p) => p.id),
     }, app.snapshot);
-    app.state = result.state;
+    commit(result.state, describe(plan));
     app.targets = app.targets.filter((id) => !plan.transfersIn.some((p) => p.id === id));
     app.planResult = null;
     app.lineup = null;
@@ -1577,7 +1640,9 @@ function renderManualTransfer() {
           out: app.pendingTransfers.map((p) => p.out),
           in: app.pendingTransfers.map((p) => p.in),
         }, app.snapshot);
-        app.state = result.state;
+        commit(result.state, app.pendingTransfers
+          .map((p) => `${app.snapshot.player(p.out).label} → ${app.snapshot.player(p.in).label}`)
+          .join(', '));
         app.pendingTransfers = [];
         app.planResult = null;
         app.lineup = null;
@@ -1597,7 +1662,8 @@ function renderManualTransfer() {
 function wireManageTab() {
   $('#advance-gw').addEventListener('click', () => {
     const wasPreSeason = isPreSeason(app.state);
-    app.state = advanceGameweek(app.state);
+    const advanced = advanceGameweek(app.state);
+    commit(advanced, `advancing to Gameweek ${advanced.gameweek}`);
     app.lineup = null; app.planResult = null; app.pendingTransfers = [];
     toast(wasPreSeason
       ? `Gameweek 1 is locked in. You now have 1 free transfer for Gameweek ${app.state.gameweek}.`
@@ -1606,13 +1672,13 @@ function wireManageTab() {
   });
   $('#apply-gw').addEventListener('click', () => {
     const gameweek = Number($('#set-gw').value);
-    app.state = { ...app.state, gameweek };
+    commit({ ...app.state, gameweek }, `setting the gameweek to ${gameweek}`);
     renderAll();
   });
   $('#export-state').addEventListener('click', () => exportState(app.state));
   $('#import-state').addEventListener('change', async (e) => {
     try {
-      app.state = await importState(e.target.files[0]);
+      commit(await importState(e.target.files[0]), 'importing a squad file');
       toast('Squad imported.', 'good');
       renderAll();
     } catch (err) { toast(err.message, 'error'); }
@@ -1636,7 +1702,8 @@ function wireManageTab() {
     importPredicted(await file.text());
   });
   $('#predicted-clear').addEventListener('click', () => {
-    app.state = { ...app.state, predicted: {}, predictedMeta: null };
+    commit({ ...app.state, predicted: {}, predictedMeta: null, predictedRows: [] },
+      'clearing the imported predictions');
     app.lineup = null; app.planResult = null;
     $('#predicted-result').replaceChildren();
     toast('Imported points cleared. Projections are zero until you import again.', 'good');
@@ -1644,7 +1711,7 @@ function wireManageTab() {
   });
   $('#team-news-apply').addEventListener('click', applyTeamNewsFromBox);
   $('#team-news-clear').addEventListener('click', () => {
-    app.state = { ...app.state, overrides: {} };
+    commit({ ...app.state, overrides: {} }, 'clearing the manual adjustments');
     app.lineup = null;
     $('#team-news-result').replaceChildren();
     toast('All manual adjustments cleared.', 'good');
@@ -1654,6 +1721,7 @@ function wireManageTab() {
     if (!confirm('Delete the saved squad, transfers and chip history from this browser?')) return;
     clearState();
     app.state = emptyState(app.snapshot.nextEvent ?? 1);
+    app.history = [];
     app.builder = []; app.targets = []; app.lineup = null; app.planResult = null;
     renderAll();
   });
@@ -1682,7 +1750,7 @@ function applyTeamNewsFromBox() {
   for (const item of applied) {
     overrides[item.player.id] = { ...(overrides[item.player.id] ?? {}), ...item.override };
   }
-  app.state = { ...app.state, overrides };
+  commit({ ...app.state, overrides }, 'a manual adjustment');
   app.lineup = null;
 
   const lines = applied.map((a) => {
@@ -1769,12 +1837,13 @@ function importPredicted(text) {
   // A published table covers the whole league, and a target is often shortlisted
   // after the paste. Keep the rows nobody claimed so that adding him later still
   // gives him numbers instead of a silent zero.
-  app.state = {
+  commit({
     ...app.state,
     predicted: { ...(app.state.predicted ?? {}), ...points },
     predictedRows: keepRows(unmatched),
     predictedMeta: { at: new Date().toISOString(), gameweeks, rows: entries.length },
-  };
+  }, 'importing predicted points');
+  // Part of the same action, so it does not get an undo step of its own.
   reconcilePredicted();
   app.lineup = null;
   app.planResult = null;

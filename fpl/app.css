@@ -277,3 +277,6 @@ table.grid td.starts { font-weight: 600; }
 table.grid td.starts::after { content: ' \2022'; color: var(--good); }
 table.grid tfoot td { border-bottom: none; color: var(--text-muted); }
 .small.warn { color: var(--bad); width: 100%; }
+
+/* Undo sits with the squad figures it would change. */
+.topbar-meta #undo { align-self: center; white-space: nowrap; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; }

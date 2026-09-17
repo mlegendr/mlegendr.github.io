@@ -9,6 +9,10 @@ import { emptyState, STATE_VERSION } from './squad.js';
 import { loadSnapshot } from './snapshot.js';
 
 const STORAGE_KEY = 'fpl-squad-manager:v1';
+const HISTORY_KEY = 'fpl-squad-manager:v1:history';
+
+/** How many steps back you can go. Deep enough for a bad session, not endless. */
+export const HISTORY_LIMIT = 20;
 
 export function saveState(state) {
   try {
@@ -40,6 +44,44 @@ function migrate(old) {
 
 export function clearState() {
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(HISTORY_KEY);
+}
+
+/**
+ * The undo stack, kept beside the squad so it survives closing the tab.
+ *
+ * Each entry is a whole past state, which is the only version that is always
+ * right: reversing an action by re-deriving it would have to know how every
+ * action works, and would get a price change or a chip declaration wrong.
+ */
+export function loadHistory() {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.warn('Could not read the undo history', err);
+    return [];
+  }
+}
+
+/**
+ * Store the stack, shedding the oldest entries if the browser refuses the size.
+ * Losing the far end of the history is a far better failure than losing the
+ * squad, which shares the same quota.
+ */
+export function saveHistory(entries) {
+  let keep = entries.slice(-HISTORY_LIMIT);
+  while (keep.length) {
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(keep));
+      return keep;
+    } catch (err) {
+      keep = keep.slice(1);
+    }
+  }
+  try { localStorage.removeItem(HISTORY_KEY); } catch { /* nothing more to do */ }
+  return [];
 }
 
 /**
