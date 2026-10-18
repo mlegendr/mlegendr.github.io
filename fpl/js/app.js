@@ -20,7 +20,7 @@ import {
   recordSubmission, submissionFor,
 } from './squad.js';
 import { projectSquad, teamGamesPlayed, startProbability, recentRole, explainStartProbability, horizonWeight } from './xp.js';
-import { parsePredictedPoints, matchPredictions, coverage } from './predicted.js';
+import { parsePredictedPoints, matchPredictions, coverage, mergePredictions } from './predicted.js';
 import { optimiseLineup, lineupDelta, validateXi } from './lineup.js';
 import { liveScore } from './live.js';
 import { planTransfers, describe, PLANNER_DEFAULTS, DEFAULT_HORIZON } from './transfers.js';
@@ -1690,6 +1690,7 @@ function wireManageTab() {
     commit({ ...app.state, gameweek }, `setting the gameweek to ${gameweek}`);
     renderAll();
   });
+  $('#predicted-recover').addEventListener('click', recoverPredictions);
   $('#apply-record').addEventListener('click', () => {
     const bank = Math.round(Number($('#set-bank').value) * 10);
     const freeTransfers = Number($('#set-ft').value);
@@ -1827,7 +1828,7 @@ function reconcilePredicted() {
   const claimed = new Set(matched.map((m) => m.entry));
   app.state = {
     ...app.state,
-    predicted: { ...have, ...points },
+    predicted: mergePredictions(have, points),
     predictedRows: rows.filter((row) => !claimed.has(row)),
   };
   app.lineup = null;
@@ -1865,7 +1866,7 @@ function importPredicted(text) {
   // gives him numbers instead of a silent zero.
   commit({
     ...app.state,
-    predicted: { ...(app.state.predicted ?? {}), ...points },
+    predicted: mergePredictions(app.state.predicted, points),
     predictedRows: keepRows(unmatched),
     predictedMeta: { at: new Date().toISOString(), gameweeks, rows: entries.length },
   }, 'importing predicted points');
@@ -1913,6 +1914,75 @@ function importPredicted(text) {
   box.append(report);
 
   toast(`Imported predicted points for ${matched.length} players.`, 'good');
+  renderAll();
+}
+
+/**
+ * Gameweeks held by an earlier state but not the current one.
+ *
+ * A published table only reaches a few weeks ahead, so the figures for a
+ * gameweek now in progress fall off the end of every new table. Until the
+ * import merged per gameweek they were overwritten outright - but each import
+ * left a whole state behind in the undo stack, so they can be read back
+ * without unwinding everything done since.
+ */
+function recoverablePredictions() {
+  const now = app.state.predicted ?? {};
+  const held = (map) => new Set(Object.entries(map ?? {})
+    .flatMap(([id, weeks]) => Object.keys(weeks).map((gw) => `${id}:${gw}`)));
+  const have = held(now);
+
+  const found = {};
+  const weeks = new Set();
+  let from = null;
+  // Newest first, so the most recent figure for a gameweek wins.
+  for (const entry of [...(app.history ?? [])].reverse()) {
+    for (const [id, byWeek] of Object.entries(entry.state?.predicted ?? {})) {
+      if (!app.snapshot.player(Number(id))) continue;
+      for (const [gw, value] of Object.entries(byWeek)) {
+        if (have.has(`${id}:${gw}`) || found[id]?.[gw] != null) continue;
+        found[id] = { ...(found[id] ?? {}), [gw]: value };
+        weeks.add(Number(gw));
+        from = from ?? entry;
+      }
+    }
+  }
+  return { points: found, weeks: [...weeks].sort((a, b) => a - b), from };
+}
+
+function renderRecoverable() {
+  const button = $('#predicted-recover');
+  const note_ = $('#predicted-recoverable');
+  if (!button) return;
+  note_.textContent = '';
+  const { weeks, from } = recoverablePredictions();
+  // Only offer gameweeks still worth having: the ones being scored from here.
+  const wanted = weeks.filter((gw) => gw >= app.state.gameweek);
+  button.hidden = wanted.length === 0;
+  if (!wanted.length) return;
+  button.textContent = `Recover GW${wanted.join(', GW')} from an earlier import`;
+  note_.textContent = `An earlier import held figures for GW${wanted.join(', GW')} that your `
+    + 'current table does not cover. Recovering them fills only the gaps — nothing you have '
+    + 'imported since is changed.'
+    + (from?.at ? ` Last seen before "${from.label}", ${new Date(from.at).toLocaleString()}.` : '');
+}
+
+function recoverPredictions() {
+  const { points, weeks } = recoverablePredictions();
+  const wanted = weeks.filter((gw) => gw >= app.state.gameweek);
+  if (!wanted.length) { toast('Nothing to recover.'); return; }
+
+  // Fill gaps only: a gameweek the current table covers keeps its figure.
+  const keep = {};
+  for (const [id, byWeek] of Object.entries(points)) {
+    const slice = Object.fromEntries(Object.entries(byWeek).filter(([gw]) => wanted.includes(Number(gw))));
+    if (Object.keys(slice).length) keep[id] = slice;
+  }
+  commit({ ...app.state, predicted: mergePredictions(app.state.predicted, keep) },
+    `recovering GW${wanted.join(', GW')} figures`);
+  app.lineup = null;
+  app.planResult = null;
+  toast(`Recovered GW${wanted.join(', GW')} for ${Object.keys(keep).length} players.`, 'good');
   renderAll();
 }
 
@@ -1975,6 +2045,7 @@ function renderManageTab() {
   }
 
   renderPredictedStatus();
+  renderRecoverable();
   renderOverrides();
 
   const log = $('#log');

@@ -284,3 +284,19 @@ export function coverage(points, playerIds, gameweeks) {
   const wanted = playerIds.length * gameweeks.length;
   return { have, wanted, missing, complete: wanted > 0 && have === wanted };
 }
+
+/**
+ * Fold freshly imported figures into the ones already held.
+ *
+ * Merging per gameweek rather than per player matters: a published table only
+ * reaches a few weeks ahead, so a table starting at GW8 would otherwise wipe
+ * GW7 for every player it names, taking the current gameweek's figures with
+ * it. A gameweek the new table covers is overwritten; one it does not is kept.
+ */
+export function mergePredictions(existing, incoming) {
+  const out = { ...(existing ?? {}) };
+  for (const [playerId, points] of Object.entries(incoming ?? {})) {
+    out[playerId] = { ...(out[playerId] ?? {}), ...points };
+  }
+  return out;
+}

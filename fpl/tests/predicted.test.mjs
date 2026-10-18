@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSnapshot, legalSquadSpecs } from './fixtures.mjs';
 import { MID, FWD } from '../js/rules.js';
-import { parsePredictedPoints, matchPredictions, coverage } from '../js/predicted.js';
+import { parsePredictedPoints, matchPredictions, coverage, mergePredictions } from '../js/predicted.js';
 import { expectedPoints, projectSquad, DEFAULTS as XP_DEFAULTS } from '../js/xp.js';
 
 const TABLE_TSV = [
@@ -330,4 +330,27 @@ test('a row for your player at a different club is reported, not silently droppe
   assert.equal(conflicts.length, 1, 'a club mismatch is worth telling the manager about');
   assert.equal(conflicts[0].team, 'HUL');
   assert.equal(conflicts[0].candidates[0].id, 4);
+});
+
+test('a newer table does not take the gameweeks it omits with it', () => {
+  // The GW7 figures were imported last week; this week's table starts at GW8.
+  const held = { 4: { 7: 3.9, 8: 1.8 }, 8: { 7: 6.2, 8: 5.5 } };
+  const fresh = { 4: { 8: 2.1, 9: 2.4 }, 8: { 8: 5.9, 9: 6.0 } };
+
+  const merged = mergePredictions(held, fresh);
+  assert.equal(merged[4][7], 3.9, 'GW7 survives a table that does not mention it');
+  assert.equal(merged[4][8], 2.1, 'and GW8 takes the newer figure');
+  assert.equal(merged[4][9], 2.4);
+  assert.equal(merged[8][7], 6.2);
+
+  // Neither input is mutated, so a failed import cannot corrupt what is held.
+  assert.deepEqual(held[4], { 7: 3.9, 8: 1.8 });
+  assert.deepEqual(fresh[4], { 8: 2.1, 9: 2.4 });
+});
+
+test('merging tolerates a player who is new or missing on either side', () => {
+  assert.deepEqual(mergePredictions(undefined, { 1: { 7: 4 } }), { 1: { 7: 4 } });
+  assert.deepEqual(mergePredictions({ 1: { 7: 4 } }, undefined), { 1: { 7: 4 } });
+  assert.deepEqual(mergePredictions({ 1: { 7: 4 } }, { 2: { 7: 5 } }),
+    { 1: { 7: 4 }, 2: { 7: 5 } });
 });
