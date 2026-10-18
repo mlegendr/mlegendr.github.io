@@ -654,3 +654,50 @@ test('a swap is judged on the eleven it produces, not on the two players', () =>
   assert.ok(plan.netGain > 0, 'and it is still an improvement, so it is recommended');
   assert.equal(result.recommendation.action, 'transfer');
 });
+
+test('bench boost makes a bench upgrade worth buying, for that one gameweek', () => {
+  const spec = (id, position, team, price = 50) => ({ id, name: `P${id}`, position, team, price });
+  const squad = [
+    spec(1, GKP, 1), spec(2, GKP, 2),
+    spec(3, DEF, 3), spec(4, DEF, 4), spec(5, DEF, 5), spec(6, DEF, 6), spec(7, DEF, 7),
+    spec(8, MID, 8), spec(9, MID, 9), spec(10, MID, 10), spec(11, MID, 11), spec(12, MID, 12),
+    spec(13, FWD, 13), spec(14, FWD, 14), spec(15, FWD, 15),
+  ];
+  const candidate = spec(90, FWD, 16, 50);
+  const snapshot = buildSnapshot({ playerSpecs: [...squad, candidate], teams: 20 });
+
+  // The signing is four points better than the man he replaces, but both are
+  // so far down the squad that neither ever reaches the eleven.
+  const flat = (v) => ({ 1: v, 2: v, 3: v, 4: v, 5: v });
+  const predicted = {
+    1: flat(5), 2: flat(1),
+    3: flat(6), 4: flat(5.5), 5: flat(5), 6: flat(4.5), 7: flat(4),
+    8: flat(7), 9: flat(6.5), 10: flat(6), 11: flat(5.5), 12: flat(5),
+    13: flat(8), 14: flat(7), 15: flat(0.5),
+    90: flat(4.5),
+  };
+
+  let state = initialSquad(emptyState(1), squad.map((s) => s.id), snapshot);
+  state = { ...state, freeTransfers: 1, bank: 0, gameweek: 2 };
+  const options = { source: 'predicted', predicted, horizon: 5, fromGameweek: 2 };
+  const swap = (result) => result.plans.find((p) => p.transfers === 1
+    && p.transfersOut[0].id === 15 && p.transfersIn[0].id === 90);
+
+  // No chip: improving a player who never starts changes nothing at all.
+  const plain = planTransfers(state, snapshot, [90], options);
+  assert.equal(plain.recommendation.action, 'hold');
+  assert.ok(Math.abs(swap(plain).netGain) < 1e-9, 'a bench upgrade is worth nothing by itself');
+
+  // Bench Boost: every one of the fifteen scores, so the upgrade is real.
+  const boosted = planTransfers(declareChip(state, 'bboost', snapshot), snapshot, [90], options);
+  assert.equal(boosted.recommendation.action, 'transfer');
+  const plan = swap(boosted);
+  assert.ok(Math.abs(plan.netGain - 4) < 1e-9, `expected +4.0, got ${plan.netGain}`);
+
+  // The chip lasts one gameweek, so only the first is scored on all fifteen.
+  const [first, second] = plan.perGameweek;
+  const [baseFirst, baseSecond] = boosted.baseline.perGameweek;
+  assert.ok(Math.abs(first.points - baseFirst.points - 4) < 1e-9, 'the chipped gameweek gains');
+  assert.ok(Math.abs(second.points - baseSecond.points) < 1e-9, 'later gameweeks do not');
+  assert.ok(baseFirst.points > baseSecond.points, 'and the bench only counts in the first');
+});

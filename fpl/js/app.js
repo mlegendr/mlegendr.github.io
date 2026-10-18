@@ -1399,6 +1399,21 @@ function renderPlans(result) {
     + '.';
   box.append(context);
 
+  // A horizon the imported table does not reach is scored as zeros, which
+  // looks exactly like "no move helps". Say which it is.
+  const gap = coverage(app.state.predicted ?? {}, app.state.picks.map((p) => p.playerId), result.gameweeks);
+  if (!gap.complete) {
+    const weeks = [...new Set(gap.missing.map((m) => m.gameweek))].sort((a, b) => a - b);
+    const warning = note(gap.have === 0
+      ? `⚠ Your imported table covers none of GW${result.gameweeks[0]}–GW${result.gameweeks.at(-1)}, `
+        + 'so every projection here is zero and this verdict means nothing. Paste a table '
+        + 'covering these gameweeks on the Manage tab.'
+      : `⚠ No imported figures for GW${weeks.join(', GW')}, which count as zero and drag every `
+        + 'plan down. Import a table covering them, or shorten the horizon.');
+    warning.className = 'small warn';
+    box.append(warning);
+  }
+
   // Protection is a choice with a price; show the price.
   if (result.protectionCost) {
     const cost = document.createElement('p');
